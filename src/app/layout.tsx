@@ -40,12 +40,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased h-full bg-background text-foreground`}
       >
         <ThemeProvider defaultTheme="system" storageKey="mcpchat-theme">
-          <ErrorBoundary
-            onError={(error, errorInfo) => {
-              console.error('Root layout error:', error, errorInfo);
-              // Report to error tracking service in production
-            }}
-          >
+          <ErrorBoundary>
             {children}
           </ErrorBoundary>
         </ThemeProvider>

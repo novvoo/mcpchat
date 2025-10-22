@@ -69,7 +69,7 @@ export class OpenAICompatibleLLMService implements LLMService {
 
       // Prepare request payload
       const requestPayload = {
-        model: 'gpt-3.5-turbo', // Default model, can be made configurable
+        model: 'gpt-4o', // Default model, can be made configurable
         messages: messages.map(msg => ({
           role: msg.role,
           content: msg.content,
@@ -149,6 +149,9 @@ export class OpenAICompatibleLLMService implements LLMService {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout)
 
     try {
+      console.log('Making LLM request to:', url)
+      console.log('Request payload:', JSON.stringify(payload, null, 2))
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: this.headers,
@@ -159,7 +162,15 @@ export class OpenAICompatibleLLMService implements LLMService {
       clearTimeout(timeoutId)
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
+        let errorData = {}
+        try {
+          errorData = await response.json()
+        } catch {
+          // If JSON parsing fails, try to get text
+          const errorText = await response.text()
+          errorData = { message: errorText }
+        }
+        
         throw new LLMServiceError(
           `HTTP ${response.status}: ${response.statusText}`,
           response.status,
@@ -167,7 +178,48 @@ export class OpenAICompatibleLLMService implements LLMService {
         )
       }
 
-      return await response.json()
+      // Get response text first to handle both JSON and text responses
+      const responseText = await response.text()
+      console.log('Raw LLM response:', responseText.substring(0, 200) + '...')
+      
+      // Check if response looks like JSON
+      const contentType = response.headers.get('content-type') || ''
+      const looksLikeJson = responseText.trim().startsWith('{') || responseText.trim().startsWith('[')
+      
+      if (contentType.includes('application/json') || looksLikeJson) {
+        try {
+          return JSON.parse(responseText)
+        } catch (parseError) {
+          console.error('Failed to parse JSON response:', parseError)
+          console.error('Response text:', responseText.substring(0, 500))
+          
+          throw new LLMServiceError(
+            `Invalid JSON response from LLM service. Response: ${responseText.substring(0, 100)}...`,
+            502, // BAD_GATEWAY
+            { 
+              rawResponse: responseText.substring(0, 500),
+              contentType,
+              parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error'
+            }
+          )
+        }
+      } else {
+        // Handle plain text response - convert to OpenAI format
+        console.warn('Received plain text response from LLM, converting to JSON format')
+        
+        return {
+          choices: [{
+            message: {
+              role: 'assistant',
+              content: responseText
+            }
+          }],
+          usage: {
+            prompt_tokens: 0,
+            completion_tokens: responseText.length / 4 // Rough estimate
+          }
+        }
+      }
     } catch (error) {
       clearTimeout(timeoutId)
       
@@ -175,7 +227,15 @@ export class OpenAICompatibleLLMService implements LLMService {
         throw new LLMServiceError('Request timeout', HTTP_STATUS.SERVICE_UNAVAILABLE)
       }
       
-      throw error
+      if (error instanceof LLMServiceError) {
+        throw error
+      }
+      
+      throw new LLMServiceError(
+        `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HTTP_STATUS.SERVICE_UNAVAILABLE,
+        { originalError: error }
+      )
     }
   }
 

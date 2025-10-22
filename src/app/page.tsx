@@ -1,3 +1,5 @@
+'use client'
+
 import { SimpleChatInterface } from '@/components'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 

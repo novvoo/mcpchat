@@ -1,4 +1,4 @@
-// MCP Server Manager - Handles MCP server lifecycle and operations
+// MCP Server Manager - Client-side interface for MCP operations
 
 import { MCPServerConfig, Tool } from '@/types'
 import { 
@@ -11,25 +11,21 @@ import {
   MCPCallToolResponse,
   MCPMetrics
 } from '@/types/mcp'
-import { getConfigLoader } from './config'
-import { spawn, ChildProcess } from 'child_process'
-import { EventEmitter } from 'events'
+import { getClientConfigLoader } from './config-client'
 
 /**
- * Individual MCP Server Manager implementation
+ * Client-side MCP Server Manager - communicates with server via API
  */
 export class MCPServer implements MCPServerManager {
   private config: MCPServerConfig
-  private process: ChildProcess | null = null
   private status: ServerStatus
-  private eventEmitter: EventEmitter
   private tools: Tool[] = []
   private lastPing: Date | null = null
   private metrics: MCPMetrics
+  private eventListeners: MCPEventListener[] = []
 
   constructor(config: MCPServerConfig) {
     this.config = config
-    this.eventEmitter = new EventEmitter()
     this.status = {
       name: config.name,
       status: 'disconnected',
@@ -48,25 +44,33 @@ export class MCPServer implements MCPServerManager {
   }
 
   /**
-   * Initialize the MCP server
+   * Initialize the MCP server via API
    */
   async initialize(): Promise<void> {
     try {
       this.status.status = 'initializing'
       this.emitEvent('server_connected', { config: this.config })
 
-      // Spawn the MCP server process
-      await this.startProcess()
+      // Initialize via API call to server
+      const response = await fetch('/api/mcp/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverName: this.config.name, config: this.config })
+      })
 
-      // Initialize MCP protocol
-      await this.initializeProtocol()
+      if (!response.ok) {
+        throw new Error(`Failed to initialize server: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      
+      this.status.status = 'connected'
+      this.status.lastPing = new Date()
+      this.status.capabilities = result.capabilities
+      this.lastPing = new Date()
 
       // Load available tools
       await this.loadTools()
-
-      this.status.status = 'connected'
-      this.status.lastPing = new Date()
-      this.lastPing = new Date()
 
       console.log(`MCP server ${this.config.name} initialized successfully`)
     } catch (error) {
@@ -77,151 +81,36 @@ export class MCPServer implements MCPServerManager {
     }
   }
 
-  /**
-   * Start the MCP server process
-   */
-  private async startProcess(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.process = spawn(this.config.command, this.config.args, {
-          env: { ...process.env, ...this.config.env },
-          stdio: ['pipe', 'pipe', 'pipe']
-        })
 
-        this.process.on('error', (error) => {
-          this.status.status = 'error'
-          this.status.error = `Process error: ${error.message}`
-          reject(error)
-        })
-
-        this.process.on('exit', (code, signal) => {
-          this.status.status = 'disconnected'
-          this.status.error = `Process exited with code ${code}, signal ${signal}`
-          this.emitEvent('server_disconnected', { code, signal })
-        })
-
-        // Give the process a moment to start
-        setTimeout(() => {
-          if (this.process && !this.process.killed) {
-            resolve()
-          } else {
-            reject(new Error('Process failed to start'))
-          }
-        }, 1000)
-      } catch (error) {
-        reject(error)
-      }
-    })
-  }
 
   /**
-   * Initialize MCP protocol communication
-   */
-  private async initializeProtocol(): Promise<void> {
-    // In a real implementation, this would establish JSON-RPC communication
-    // For now, we'll simulate the protocol initialization
-    
-    const initRequest = {
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: {
-        protocolVersion: '2024-11-05',
-        capabilities: {
-          tools: { listChanged: true },
-          resources: { subscribe: true, listChanged: true },
-          prompts: { listChanged: true },
-          logging: {}
-        },
-        clientInfo: {
-          name: 'mcpchat-client',
-          version: '0.1.0'
-        }
-      }
-    }
-
-    // Simulate successful initialization
-    this.status.capabilities = {
-      tools: { listChanged: true },
-      resources: { subscribe: true, listChanged: true },
-      prompts: { listChanged: true },
-      logging: {}
-    }
-  }
-
-  /**
-   * Load available tools from the server
+   * Load available tools from the server via API
    */
   private async loadTools(): Promise<void> {
-    // In a real implementation, this would send a tools/list request
-    // For now, we'll simulate with default tools based on the gurddy server
-    
-    if (this.config.name === 'gurddy') {
-      this.tools = [
-        {
-          name: 'run_example',
-          description: 'Run an example computation',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              example_type: { type: 'string', description: 'Type of example to run' }
-            },
-            required: ['example_type']
-          }
-        },
-        {
-          name: 'solve_n_queens',
-          description: 'Solve the N-Queens problem',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              n: { type: 'number', description: 'Size of the chessboard' }
-            },
-            required: ['n']
-          }
-        },
-        {
-          name: 'solve_sudoku',
-          description: 'Solve a Sudoku puzzle',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              puzzle: { type: 'array', description: 'Sudoku puzzle as 9x9 array' }
-            },
-            required: ['puzzle']
-          }
-        }
-        // Add more tools as needed
-      ]
+    try {
+      const response = await fetch(`/api/mcp/tools?server=${this.config.name}`)
+      if (response.ok) {
+        const data = await response.json()
+        this.tools = data.tools || []
+      }
+    } catch (error) {
+      console.error(`Failed to load tools for server ${this.config.name}:`, error)
+      this.tools = []
     }
   }
 
   /**
-   * Shutdown the MCP server
+   * Shutdown the MCP server via API
    */
   async shutdown(): Promise<void> {
     try {
-      if (this.process && !this.process.killed) {
-        this.process.kill('SIGTERM')
-        
-        // Wait for graceful shutdown or force kill after timeout
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            if (this.process && !this.process.killed) {
-              this.process.kill('SIGKILL')
-            }
-            resolve()
-          }, 5000)
-
-          this.process?.on('exit', () => {
-            clearTimeout(timeout)
-            resolve()
-          })
-        })
-      }
+      await fetch('/api/mcp/shutdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverName: this.config.name })
+      })
 
       this.status.status = 'disconnected'
-      this.process = null
       this.emitEvent('server_disconnected', {})
     } catch (error) {
       console.error(`Error shutting down MCP server ${this.config.name}:`, error)
@@ -239,7 +128,7 @@ export class MCPServer implements MCPServerManager {
   }
 
   /**
-   * Call a tool on the MCP server
+   * Call a tool on the MCP server via API
    */
   async callTool(name: string, args: Record<string, any>): Promise<MCPCallToolResponse> {
     const startTime = Date.now()
@@ -255,16 +144,23 @@ export class MCPServer implements MCPServerManager {
         throw new Error(`Tool ${name} not found on server ${this.config.name}`)
       }
 
-      // Check if tool is auto-approved
-      if (!this.config.autoApprove.includes(name)) {
-        throw new Error(`Tool ${name} is not auto-approved for server ${this.config.name}`)
-      }
-
       this.emitEvent('tool_called', { toolName: name, args })
 
-      // In a real implementation, this would send a tools/call request
-      // For now, we'll simulate tool execution
-      const result = await this.simulateToolExecution(name, args)
+      const response = await fetch('/api/mcp/call-tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serverName: this.config.name,
+          toolName: name,
+          args
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Tool call failed: ${response.statusText}`)
+      }
+
+      const result = await response.json()
 
       const executionTime = Date.now() - startTime
       this.updateMetrics(true, executionTime)
@@ -279,48 +175,7 @@ export class MCPServer implements MCPServerManager {
     }
   }
 
-  /**
-   * Simulate tool execution (replace with real MCP communication)
-   */
-  private async simulateToolExecution(name: string, args: Record<string, any>): Promise<MCPCallToolResponse> {
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500))
 
-    switch (name) {
-      case 'run_example':
-        return {
-          content: [{
-            type: 'text',
-            text: `Example execution completed for type: ${args.example_type}`
-          }]
-        }
-      
-      case 'solve_n_queens':
-        const n = args.n || 8
-        return {
-          content: [{
-            type: 'text',
-            text: `N-Queens solution for ${n}x${n} board: Found ${n > 0 ? 'solution' : 'no solution'}`
-          }]
-        }
-      
-      case 'solve_sudoku':
-        return {
-          content: [{
-            type: 'text',
-            text: 'Sudoku puzzle solved successfully'
-          }]
-        }
-      
-      default:
-        return {
-          content: [{
-            type: 'text',
-            text: `Tool ${name} executed with args: ${JSON.stringify(args)}`
-          }]
-        }
-    }
-  }
 
   /**
    * Update server metrics
@@ -367,14 +222,17 @@ export class MCPServer implements MCPServerManager {
    * Add event listener
    */
   addEventListener(listener: MCPEventListener): void {
-    this.eventEmitter.on('mcp_event', listener)
+    this.eventListeners.push(listener)
   }
 
   /**
    * Remove event listener
    */
   removeEventListener(listener: MCPEventListener): void {
-    this.eventEmitter.off('mcp_event', listener)
+    const index = this.eventListeners.indexOf(listener)
+    if (index > -1) {
+      this.eventListeners.splice(index, 1)
+    }
   }
 
   /**
@@ -387,7 +245,7 @@ export class MCPServer implements MCPServerManager {
       timestamp: new Date(),
       data
     }
-    this.eventEmitter.emit('mcp_event', event)
+    this.eventListeners.forEach(listener => listener(event))
   }
 
   // Placeholder methods for future implementation
@@ -396,11 +254,11 @@ export class MCPServer implements MCPServerManager {
 }
 
 /**
- * MCP Server Registry implementation
+ * Client-side MCP Server Registry implementation
  */
 export class MCPRegistry implements MCPServerRegistry {
   public servers: Map<string, MCPServerManager> = new Map()
-  private eventEmitter: EventEmitter = new EventEmitter()
+  private eventListeners: MCPEventListener[] = []
 
   /**
    * Register a new MCP server
@@ -492,7 +350,7 @@ export class MCPManager {
   }
 
   /**
-   * Initialize MCP manager with configuration
+   * Initialize MCP manager with configuration via API
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -500,17 +358,29 @@ export class MCPManager {
     }
 
     try {
-      const configLoader = getConfigLoader()
+      // Load configuration via client config loader
+      const configLoader = getClientConfigLoader()
       await configLoader.loadConfig()
       
       const serverConfigs = configLoader.getAllMCPServerConfigs()
       const enabledServers = configLoader.getEnabledServers()
 
+      // Initialize via API call to server
+      const response = await fetch('/api/mcp/initialize-manager', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to initialize MCP Manager: ${response.statusText}`)
+      }
+
       // Register enabled servers
       for (const serverName of enabledServers) {
         const config = serverConfigs[serverName]
         if (config) {
-          await this.registry.register(serverName, config)
+          const server = new MCPServer(config)
+          this.registry.servers.set(serverName, server)
         }
       }
 
