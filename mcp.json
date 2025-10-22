@@ -1,14 +1,12 @@
 {
   "mcpServers": {
-    "gurddy": {
-      "name": "gurddy-mcp",
-      "transport": "http",
-      "url": "https://gurddy-mcp.fly.dev/mcp/http",
+    "gurddy-stdio": {
+      "name": "gurddy-stdio",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["gurddy-mcp@latest"],
       "env": {},
       "disabled": false,
-      "timeout": 30000,
-      "retryAttempts": 3,
-      "retryDelay": 1000,
       "autoApprove": [
         "run_example",
         "info",
