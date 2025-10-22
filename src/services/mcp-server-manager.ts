@@ -216,7 +216,7 @@ export class MCPServerManager {
 
     try {
       if (serverInfo.config.transport === 'http') {
-        // Load tools via MCP JSON-RPC
+        // Load tools via MCP JSON-RPC over HTTP
         const response = await this.sendMCPRequest(serverInfo, 'tools/list', {})
         
         if (response.result && response.result.tools) {
@@ -229,64 +229,124 @@ export class MCPServerManager {
           serverInfo.tools = []
         }
       } else {
-        // For stdio servers, use default tools based on server name
-        if (serverName === 'gurddy') {
-          serverInfo.tools = [
-            {
-              name: 'run_example',
-              description: 'Run an example computation',
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  example_type: { type: 'string', description: 'Type of example to run' }
-                },
-                required: ['example_type']
-              }
-            },
-            {
-              name: 'solve_n_queens',
-              description: 'Solve the N-Queens problem',
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  n: { type: 'number', description: 'Size of the chessboard' }
-                },
-                required: ['n']
-              }
-            },
-            {
-              name: 'solve_sudoku',
-              description: 'Solve a Sudoku puzzle',
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  puzzle: { type: 'array', description: 'Sudoku puzzle as 9x9 array' }
-                },
-                required: ['puzzle']
-              }
-            }
-          ]
-        } else {
-          // Default tools for other servers
-          serverInfo.tools = [
-            {
-              name: 'echo',
-              description: 'Echo back the input',
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  message: { type: 'string', description: 'Message to echo' }
-                },
-                required: ['message']
-              }
-            }
-          ]
-        }
+        // Load tools via MCP JSON-RPC over stdio
+        await this.loadStdioServerTools(serverName, serverInfo)
       }
     } catch (error) {
       console.error(`Failed to load tools for server ${serverName}:`, error)
       serverInfo.tools = []
     }
+  }
+
+  /**
+   * Load tools for stdio-based MCP server using JSON-RPC protocol
+   */
+  private async loadStdioServerTools(serverName: string, serverInfo: any): Promise<void> {
+    if (!serverInfo.process || serverInfo.process.killed) {
+      throw new Error(`Server process for ${serverName} is not running`)
+    }
+
+    return new Promise((resolve, reject) => {
+      const process = serverInfo.process
+      let responseBuffer = ''
+      let initResponseReceived = false
+      let toolsResponseReceived = false
+
+      const timeout = setTimeout(() => {
+        cleanup()
+        reject(new Error(`Timeout waiting for tools from ${serverName}`))
+      }, 10000)
+
+      const cleanup = () => {
+        clearTimeout(timeout)
+        if (process.stdout) {
+          process.stdout.removeAllListeners('data')
+        }
+      }
+
+      const dataHandler = (data: Buffer) => {
+        responseBuffer += data.toString()
+        const lines = responseBuffer.split('\n')
+        responseBuffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.trim()) continue
+
+          try {
+            const response = JSON.parse(line)
+            console.log(`Received MCP response from ${serverName}:`, response)
+
+            // Handle initialize response
+            if (response.id === 1 && !initResponseReceived) {
+              initResponseReceived = true
+              console.log(`${serverName} initialized, sending notifications/initialized`)
+              
+              // Send notifications/initialized
+              const initializedNotification = JSON.stringify({
+                jsonrpc: '2.0',
+                method: 'notifications/initialized'
+              }) + '\n'
+              process.stdin?.write(initializedNotification)
+
+              // Now request tools list
+              console.log(`Requesting tools/list from ${serverName}`)
+              const toolsRequest = JSON.stringify({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tools/list',
+                params: {}
+              }) + '\n'
+              process.stdin?.write(toolsRequest)
+            }
+            // Handle tools/list response
+            else if (response.id === 2 && !toolsResponseReceived) {
+              toolsResponseReceived = true
+              
+              if (response.result && response.result.tools) {
+                serverInfo.tools = response.result.tools.map((tool: any) => ({
+                  name: tool.name,
+                  description: tool.description,
+                  inputSchema: tool.inputSchema
+                }))
+                console.log(`Loaded ${serverInfo.tools.length} tools from ${serverName}:`, serverInfo.tools.map((t: Tool) => t.name))
+              } else {
+                serverInfo.tools = []
+                console.warn(`No tools found in response from ${serverName}`)
+              }
+              
+              cleanup()
+              resolve()
+            }
+          } catch (error) {
+            console.error(`Failed to parse MCP response from ${serverName}:`, line, error)
+          }
+        }
+      }
+
+      if (process.stdout) {
+        process.stdout.on('data', dataHandler)
+      }
+
+      // Send initialize request
+      console.log(`Sending MCP initialize request to ${serverName}`)
+      const initRequest = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {
+            tools: {}
+          },
+          clientInfo: {
+            name: 'mcpchat',
+            version: '1.0.0'
+          }
+        }
+      }) + '\n'
+
+      process.stdin?.write(initRequest)
+    })
   }
 
   /**
