@@ -105,31 +105,5 @@ export const DEFAULT_LLM_HEADERS = {
   'Authorization': ''
 } as const
 
-// MCP server configuration defaults
-export const DEFAULT_MCP_CONFIG: Record<string, import('./index').MCPServerConfig> = {
-  gurddy: {
-    name: 'gurddy',
-    command: 'uvx',
-    args: ['gurddy-mcp@latest'],
-    env: {},
-    disabled: false,
-    autoApprove: [
-      'run_example',
-      'info',
-      'install',
-      'solve_n_queens',
-      'solve_sudoku',
-      'solve_graph_coloring',
-      'solve_map_coloring',
-      'solve_lp',
-      'solve_production_planning',
-      'solve_minimax_game',
-      'solve_minimax_decision',
-      'solve_24_point_game',
-      'solve_chicken_rabbit_problem',
-      'solve_scipy_portfolio_optimization',
-      'solve_scipy_statistical_fitting',
-      'solve_scipy_facility_location'
-    ]
-  }
-}
+// Note: MCP configuration loading has been moved to server-side utilities
+// Client-side code should fetch config through API endpoints

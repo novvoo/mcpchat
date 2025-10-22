@@ -19,11 +19,16 @@ export interface ToolCall {
 // MCP server configuration interface
 export interface MCPServerConfig {
   name: string
-  command: string
-  args: string[]
+  transport?: 'stdio' | 'http'
+  command?: string
+  args?: string[]
   env: Record<string, string>
   disabled: boolean
   autoApprove: string[]
+  url?: string // For HTTP transport
+  timeout?: number
+  retryAttempts?: number
+  retryDelay?: number
 }
 
 // Chat response from LLM service

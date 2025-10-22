@@ -140,10 +140,11 @@ export interface ServerStatus {
 
 // MCP connection configuration
 export interface MCPConnectionConfig {
-  transport: 'stdio' | 'sse' | 'websocket'
+  transport: 'stdio' | 'http'
   command?: string
   args?: string[]
   env?: Record<string, string>
+  url?: string
   timeout?: number
   retryAttempts?: number
   retryDelay?: number

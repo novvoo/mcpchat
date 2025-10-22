@@ -1,7 +1,7 @@
 // MCP Server Manager - Client-side interface for MCP operations
 
 import { MCPServerConfig, Tool } from '@/types'
-import { 
+import {
   ServerStatus,
   MCPServerManager,
   MCPServerRegistry,
@@ -44,30 +44,42 @@ export class MCPServer implements MCPServerManager {
   }
 
   /**
-   * Initialize the MCP server via API
+   * Initialize the MCP server
    */
   async initialize(): Promise<void> {
     try {
       this.status.status = 'initializing'
       this.emitEvent('server_connected', { config: this.config })
 
-      // Initialize via API call to server
-      const response = await fetch('/api/mcp/initialize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverName: this.config.name, config: this.config })
-      })
+      // Check if we're in server environment
+      if (typeof window === 'undefined') {
+        // Server-side: use direct server manager
+        const { MCPServerManager } = await import('./mcp-server-manager')
+        const serverManager = MCPServerManager.getInstance()
+        await serverManager.initializeServer(this.config.name, this.config)
 
-      if (!response.ok) {
-        throw new Error(`Failed to initialize server: ${response.statusText}`)
+        this.status.status = 'connected'
+        this.status.lastPing = new Date()
+        this.lastPing = new Date()
+      } else {
+        // Client-side: use API call
+        const response = await fetch('/api/mcp/initialize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverName: this.config.name, config: this.config })
+        })
+
+        if (!response.ok) {
+          throw new Error(`Failed to initialize server: ${response.statusText}`)
+        }
+
+        const result = await response.json()
+
+        this.status.status = 'connected'
+        this.status.lastPing = new Date()
+        this.status.capabilities = result.capabilities
+        this.lastPing = new Date()
       }
-
-      const result = await response.json()
-      
-      this.status.status = 'connected'
-      this.status.lastPing = new Date()
-      this.status.capabilities = result.capabilities
-      this.lastPing = new Date()
 
       // Load available tools
       await this.loadTools()
@@ -84,14 +96,22 @@ export class MCPServer implements MCPServerManager {
 
 
   /**
-   * Load available tools from the server via API
+   * Load available tools from the server
    */
   private async loadTools(): Promise<void> {
     try {
-      const response = await fetch(`/api/mcp/tools?server=${this.config.name}`)
-      if (response.ok) {
-        const data = await response.json()
-        this.tools = data.tools || []
+      if (typeof window === 'undefined') {
+        // Server-side: use direct server manager
+        const { MCPServerManager } = await import('./mcp-server-manager')
+        const serverManager = MCPServerManager.getInstance()
+        this.tools = await serverManager.getServerTools(this.config.name)
+      } else {
+        // Client-side: use API call
+        const response = await fetch(`/api/mcp/tools?server=${this.config.name}`)
+        if (response.ok) {
+          const data = await response.json()
+          this.tools = data.tools || []
+        }
       }
     } catch (error) {
       console.error(`Failed to load tools for server ${this.config.name}:`, error)
@@ -100,15 +120,23 @@ export class MCPServer implements MCPServerManager {
   }
 
   /**
-   * Shutdown the MCP server via API
+   * Shutdown the MCP server
    */
   async shutdown(): Promise<void> {
     try {
-      await fetch('/api/mcp/shutdown', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverName: this.config.name })
-      })
+      if (typeof window === 'undefined') {
+        // Server-side: use direct server manager
+        const { MCPServerManager } = await import('./mcp-server-manager')
+        const serverManager = MCPServerManager.getInstance()
+        await serverManager.shutdownServer(this.config.name)
+      } else {
+        // Client-side: use API call
+        await fetch('/api/mcp/shutdown', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverName: this.config.name })
+        })
+      }
 
       this.status.status = 'disconnected'
       this.emitEvent('server_disconnected', {})
@@ -128,11 +156,11 @@ export class MCPServer implements MCPServerManager {
   }
 
   /**
-   * Call a tool on the MCP server via API
+   * Call a tool on the MCP server
    */
   async callTool(name: string, args: Record<string, any>): Promise<MCPCallToolResponse> {
     const startTime = Date.now()
-    
+
     try {
       if (this.status.status !== 'connected') {
         throw new Error(`Server ${this.config.name} is not connected`)
@@ -146,21 +174,31 @@ export class MCPServer implements MCPServerManager {
 
       this.emitEvent('tool_called', { toolName: name, args })
 
-      const response = await fetch('/api/mcp/call-tool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          serverName: this.config.name,
-          toolName: name,
-          args
+      let result: MCPCallToolResponse
+
+      if (typeof window === 'undefined') {
+        // Server-side: use direct server manager
+        const { MCPServerManager } = await import('./mcp-server-manager')
+        const serverManager = MCPServerManager.getInstance()
+        result = await serverManager.callTool(this.config.name, name, args)
+      } else {
+        // Client-side: use API call
+        const response = await fetch('/api/mcp/call-tool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serverName: this.config.name,
+            toolName: name,
+            args
+          })
         })
-      })
 
-      if (!response.ok) {
-        throw new Error(`Tool call failed: ${response.statusText}`)
+        if (!response.ok) {
+          throw new Error(`Tool call failed: ${response.statusText}`)
+        }
+
+        result = await response.json()
       }
-
-      const result = await response.json()
 
       const executionTime = Date.now() - startTime
       this.updateMetrics(true, executionTime)
@@ -183,17 +221,17 @@ export class MCPServer implements MCPServerManager {
   private updateMetrics(success: boolean, executionTime: number): void {
     this.metrics.toolCallCount++
     this.metrics.lastActivity = new Date()
-    
+
     if (!success) {
       this.metrics.errorCount++
     }
-    
+
     // Update success rate
-    this.metrics.toolCallSuccessRate = 
+    this.metrics.toolCallSuccessRate =
       ((this.metrics.toolCallCount - this.metrics.errorCount) / this.metrics.toolCallCount) * 100
-    
+
     // Update average execution time
-    this.metrics.averageExecutionTime = 
+    this.metrics.averageExecutionTime =
       (this.metrics.averageExecutionTime + executionTime) / 2
   }
 
@@ -271,7 +309,7 @@ export class MCPRegistry implements MCPServerRegistry {
 
       const server = new MCPServer(config)
       await server.initialize()
-      
+
       this.servers.set(name, server)
       console.log(`MCP server ${name} registered successfully`)
     } catch (error) {
@@ -350,7 +388,7 @@ export class MCPManager {
   }
 
   /**
-   * Initialize MCP manager with configuration via API
+   * Initialize MCP manager with configuration
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -358,29 +396,65 @@ export class MCPManager {
     }
 
     try {
-      // Load configuration via client config loader
-      const configLoader = getClientConfigLoader()
-      await configLoader.loadConfig()
-      
-      const serverConfigs = configLoader.getAllMCPServerConfigs()
-      const enabledServers = configLoader.getEnabledServers()
+      // Check if we're in server environment and use appropriate config loader
+      if (typeof window === 'undefined') {
+        // Server-side: use server config loader and direct server manager
+        const { getConfigLoader } = await import('./config')
+        const configLoader = getConfigLoader()
+        await configLoader.loadConfig()
 
-      // Initialize via API call to server
-      const response = await fetch('/api/mcp/initialize-manager', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      })
+        const serverConfigs = configLoader.getAllMCPServerConfigs()
+        const enabledServers = configLoader.getEnabledServers()
 
-      if (!response.ok) {
-        throw new Error(`Failed to initialize MCP Manager: ${response.statusText}`)
-      }
+        const { MCPServerManager } = await import('./mcp-server-manager')
+        const serverManager = MCPServerManager.getInstance()
 
-      // Register enabled servers
-      for (const serverName of enabledServers) {
-        const config = serverConfigs[serverName]
-        if (config) {
-          const server = new MCPServer(config)
-          this.registry.servers.set(serverName, server)
+        // Initialize enabled servers directly
+        for (const serverName of enabledServers) {
+          const config = serverConfigs[serverName]
+          if (config) {
+            try {
+              await serverManager.initializeServer(serverName, config)
+              console.log(`Server ${serverName} initialized successfully`)
+              
+              // Register server in registry
+              const server = new MCPServer(config)
+              // Server is already initialized by server manager, so we can add it directly
+              this.registry.servers.set(serverName, server)
+            } catch (error) {
+              console.error(`Failed to initialize server ${serverName}:`, error)
+              
+              // Register server with error status
+              const server = new MCPServer(config)
+              // Don't try to initialize since it already failed
+              this.registry.servers.set(serverName, server)
+            }
+          }
+        }
+      } else {
+        // Client-side: use client config loader and API calls
+        const configLoader = getClientConfigLoader()
+        await configLoader.loadConfig()
+
+        const serverConfigs = configLoader.getAllMCPServerConfigs()
+        const enabledServers = configLoader.getEnabledServers()
+
+        const response = await fetch('/api/mcp/initialize-manager', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+
+        if (!response.ok) {
+          throw new Error(`Failed to initialize MCP Manager: ${response.statusText}`)
+        }
+
+        // Register enabled servers
+        for (const serverName of enabledServers) {
+          const config = serverConfigs[serverName]
+          if (config) {
+            const server = new MCPServer(config)
+            this.registry.servers.set(serverName, server)
+          }
         }
       }
 
@@ -397,7 +471,7 @@ export class MCPManager {
    */
   async listTools(): Promise<Tool[]> {
     const allTools: Tool[] = []
-    
+
     for (const server of this.registry.servers.values()) {
       if (server.isConnected()) {
         try {
@@ -408,7 +482,7 @@ export class MCPManager {
         }
       }
     }
-    
+
     return allTools
   }
 
@@ -430,7 +504,7 @@ export class MCPManager {
         }
       }
     }
-    
+
     throw new Error(`Tool ${name} not found on any connected server`)
   }
 

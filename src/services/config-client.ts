@@ -22,7 +22,7 @@ export class ClientConfigLoader {
   }
 
   /**
-   * Load configuration via API call
+   * Load configuration via API call or direct loading
    */
   public async loadConfig(): Promise<AppConfig> {
     if (this.config) {
@@ -30,6 +30,16 @@ export class ClientConfigLoader {
     }
 
     try {
+      // Check if we're in a server environment
+      if (typeof window === 'undefined') {
+        // Server-side: use direct config loading
+        const { getConfigLoader } = await import('./config')
+        const serverConfigLoader = getConfigLoader()
+        this.config = await serverConfigLoader.loadConfig()
+        return this.config
+      }
+
+      // Client-side: use API call
       const response = await fetch('/api/config')
       if (!response.ok) {
         throw new Error(`Failed to load config: ${response.statusText}`)
@@ -43,6 +53,8 @@ export class ClientConfigLoader {
       throw new Error(`Configuration loading failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
+
+
 
   /**
    * Get current configuration (must call loadConfig first)

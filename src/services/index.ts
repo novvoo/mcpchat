@@ -23,7 +23,7 @@ export * from './api-client'
 
 // Convenience exports for commonly used instances
 export { getConfigLoader, loadAppConfig } from './config'
-export { getClientConfigLoader, loadClientConfig } from './config-client'
+export { getClientConfigLoader, loadClientAppConfig } from './config-client'
 export { getMCPManager } from './mcp-manager'
 export { getMCPHealthMonitor, startMCPHealthMonitoring, stopMCPHealthMonitoring } from './mcp-health'
 export { getMCPToolsService, executeMCPTool } from './mcp-tools'

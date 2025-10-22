@@ -1,9 +1,8 @@
 // Configuration loader and manager for MCP servers
 
 import { MCPServerConfig, AppConfig } from '@/types'
-import { DEFAULT_CONFIG, DEFAULT_MCP_CONFIG, ENV_VARS } from '@/types/constants'
-import fs from 'fs/promises'
-import path from 'path'
+import { DEFAULT_CONFIG, ENV_VARS } from '@/types/constants'
+import { getMCPConfig } from '@/lib/mcp-config'
 
 /**
  * Configuration loader class for managing MCP server configurations
@@ -71,52 +70,18 @@ export class ConfigLoader {
    * Load MCP server configuration from mcp.json file
    */
   private async loadMCPConfig(): Promise<{ servers: Record<string, MCPServerConfig> }> {
-    const configPath = process.env[ENV_VARS.MCP_CONFIG_PATH] || DEFAULT_CONFIG.MCP_CONFIG_PATH
-    
     try {
-      // Try to load from file first
-      const configData = await this.loadMCPConfigFromFile(configPath)
-      return { servers: configData.mcpServers }
+      // Use the dynamic config loader from constants
+      const mcpConfig = await getMCPConfig()
+      return { servers: mcpConfig }
     } catch (error) {
-      console.warn('Failed to load MCP config from file, using default:', error)
-      // Fall back to default configuration
-      return { servers: DEFAULT_MCP_CONFIG }
+      console.warn('Failed to load MCP config from file:', error)
+      // Fall back to empty configuration
+      return { servers: {} }
     }
   }
 
-  /**
-   * Load MCP configuration from a specific file path
-   */
-  private async loadMCPConfigFromFile(configPath: string): Promise<{ mcpServers: Record<string, MCPServerConfig> }> {
-    try {
-      // Resolve the path relative to the project root
-      const fullPath = path.resolve(process.cwd(), configPath)
-      
-      // Check if file exists
-      await fs.access(fullPath)
-      
-      // Read and parse the file
-      const fileContent = await fs.readFile(fullPath, 'utf-8')
-      const parsedConfig = JSON.parse(fileContent)
-      
-      // Validate the configuration structure
-      if (!parsedConfig.mcpServers || typeof parsedConfig.mcpServers !== 'object') {
-        throw new Error('Invalid MCP configuration: missing or invalid mcpServers')
-      }
 
-      // Validate each server configuration
-      for (const [serverName, serverConfig] of Object.entries(parsedConfig.mcpServers)) {
-        this.validateServerConfig(serverName, serverConfig as MCPServerConfig)
-      }
-
-      return parsedConfig
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        throw new Error(`Invalid JSON in MCP configuration file: ${error.message}`)
-      }
-      throw error
-    }
-  }
 
   /**
    * Validate a single MCP server configuration
@@ -126,19 +91,11 @@ export class ConfigLoader {
       throw new Error(`Invalid server configuration for ${serverName}: must be an object`)
     }
 
-    const requiredFields = ['command', 'args', 'env', 'disabled', 'autoApprove']
+    const requiredFields = ['env', 'disabled', 'autoApprove']
     for (const field of requiredFields) {
       if (!(field in config)) {
         throw new Error(`Invalid server configuration for ${serverName}: missing required field '${field}'`)
       }
-    }
-
-    if (typeof config.command !== 'string') {
-      throw new Error(`Invalid server configuration for ${serverName}: 'command' must be a string`)
-    }
-
-    if (!Array.isArray(config.args)) {
-      throw new Error(`Invalid server configuration for ${serverName}: 'args' must be an array`)
     }
 
     if (typeof config.env !== 'object' || config.env === null) {
@@ -151,6 +108,26 @@ export class ConfigLoader {
 
     if (!Array.isArray(config.autoApprove)) {
       throw new Error(`Invalid server configuration for ${serverName}: 'autoApprove' must be an array`)
+    }
+
+    // Validate optional transport field
+    if (config.transport && !['stdio', 'http'].includes(config.transport)) {
+      throw new Error(`Invalid server configuration for ${serverName}: 'transport' must be 'stdio' or 'http'`)
+    }
+
+    // Validate required fields based on transport type
+    if (config.transport === 'http') {
+      if (!config.url) {
+        throw new Error(`Invalid server configuration for ${serverName}: 'url' is required for HTTP transport`)
+      }
+    } else {
+      // Default to stdio, require command and args
+      if (!config.command) {
+        throw new Error(`Invalid server configuration for ${serverName}: 'command' is required for stdio transport`)
+      }
+      if (!Array.isArray(config.args)) {
+        throw new Error(`Invalid server configuration for ${serverName}: 'args' must be an array for stdio transport`)
+      }
     }
   }
 

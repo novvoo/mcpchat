@@ -1,7 +1,8 @@
-// Chat API endpoint - Handles chat requests and LLM communication
+// Chat API endpoint - Handles chat requests with smart MCP/LLM routing
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getLLMService, LLMServiceError } from '@/services/llm-service'
+import { getSmartRouter } from '@/services/smart-router'
 import { getToolOrchestrator } from '@/services/tool-orchestrator'
 import { validateChatRequest } from '@/types/validation'
 import { HTTP_STATUS, ERROR_CODES } from '@/types/constants'
@@ -47,13 +48,14 @@ export async function POST(request: NextRequest) {
     let result: any
 
     if (message && typeof message === 'string') {
-      // Single message with tool orchestration
-      const orchestrator = getToolOrchestrator()
+      // 使用智能路由处理消息 - 优先识别MCP工具
+      const smartRouter = getSmartRouter()
       
-      result = await orchestrator.processMessage(message, conversationId, {
-        enableTools,
-        maxToolCalls: 5,
-        toolTimeout: 30000
+      result = await smartRouter.processMessage(message, conversationId, {
+        enableMCPFirst: true,
+        enableLLMFallback: true,
+        mcpConfidenceThreshold: 0.6,
+        maxToolCalls: 5
       })
 
       // Prepare API response
@@ -67,7 +69,10 @@ export async function POST(request: NextRequest) {
         {
           success: true,
           data: apiResponse,
-          toolResults: result.toolResults
+          toolResults: result.toolResults,
+          source: result.source,
+          confidence: result.confidence,
+          reasoning: result.reasoning
         },
         { status: HTTP_STATUS.OK }
       )

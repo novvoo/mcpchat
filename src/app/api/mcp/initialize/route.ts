@@ -1,27 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MCPServerManager } from '@/services/mcp-server-manager'
+import { getConfigLoader } from '@/services/config'
 
 export async function POST(request: NextRequest) {
   try {
-    const { serverName, config } = await request.json()
+    const configLoader = getConfigLoader()
+    await configLoader.loadConfig()
     
-    const manager = MCPServerManager.getInstance()
-    await manager.initializeServer(serverName, config)
+    const serverConfigs = configLoader.getAllMCPServerConfigs()
+    const enabledServers = configLoader.getEnabledServers()
+    const serverManager = MCPServerManager.getInstance()
     
-    return NextResponse.json({ 
-      success: true, 
-      capabilities: {
-        tools: { listChanged: true },
-        resources: { subscribe: true, listChanged: true },
-        prompts: { listChanged: true },
-        logging: {}
+    const results = []
+    
+    for (const serverName of enabledServers) {
+      const config = serverConfigs[serverName]
+      if (config) {
+        try {
+          await serverManager.initializeServer(serverName, config)
+          results.push({
+            server: serverName,
+            success: true
+          })
+        } catch (error) {
+          results.push({
+            server: serverName,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          })
+        }
       }
+    }
+    
+    return NextResponse.json({
+      success: true,
+      results
     })
   } catch (error) {
-    console.error('Failed to initialize MCP server:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    console.error('Error initializing MCP servers:', error)
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 })
   }
 }

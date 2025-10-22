@@ -49,10 +49,17 @@ export class ToolCallOrchestrator {
     const conversationManager = getConversationManager()
     const llmService = getLLMService()
     
-    // Ensure we have a conversation
+    // Ensure we have a conversation and it exists
     let activeConversationId = conversationId
     if (!activeConversationId) {
       activeConversationId = conversationManager.createConversation()
+    } else {
+      // Check if conversation exists, create if it doesn't
+      const existingConversation = conversationManager.getConversation(activeConversationId)
+      if (!existingConversation) {
+        console.log(`Conversation ${activeConversationId} not found, creating new one`)
+        activeConversationId = conversationManager.createConversation(activeConversationId)
+      }
     }
 
     // Add user message to conversation

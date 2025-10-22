@@ -1,7 +1,6 @@
 // Server-side MCP Manager - Handles actual Node.js processes and MCP communication
 
 import { spawn, ChildProcess } from 'child_process'
-import { EventEmitter } from 'events'
 import { MCPServerConfig, Tool } from '@/types'
 import { MCPCallToolResponse } from '@/types/mcp'
 
@@ -16,6 +15,7 @@ export class MCPServerManager {
     status: 'disconnected' | 'initializing' | 'connected' | 'error'
     tools: Tool[]
     error?: string
+    httpClient?: any // For HTTP transport
   }> = new Map()
 
   private constructor() {}
@@ -37,13 +37,19 @@ export class MCPServerManager {
         process: null as ChildProcess | null,
         status: 'initializing' as 'disconnected' | 'initializing' | 'connected' | 'error',
         tools: [] as Tool[],
-        error: undefined
+        error: undefined,
+        httpClient: undefined
       }
 
       this.servers.set(serverName, serverInfo)
 
-      // Start the MCP server process
-      await this.startServerProcess(serverName)
+      // Initialize based on transport type
+      if (config.transport === 'http') {
+        await this.initializeHttpServer(serverName)
+      } else {
+        // Default to stdio
+        await this.startServerProcess(serverName)
+      }
 
       // Load tools
       await this.loadServerTools(serverName)
@@ -61,6 +67,74 @@ export class MCPServerManager {
   }
 
   /**
+   * Initialize HTTP-based MCP server
+   */
+  private async initializeHttpServer(serverName: string): Promise<void> {
+    const serverInfo = this.servers.get(serverName)
+    if (!serverInfo) {
+      throw new Error(`Server ${serverName} not found`)
+    }
+
+    if (!serverInfo.config.url) {
+      throw new Error(`HTTP URL is required for server ${serverName}`)
+    }
+
+    console.log(`Initializing HTTP MCP server ${serverName} at ${serverInfo.config.url}`)
+
+    try {
+      // Create HTTP client for MCP JSON-RPC communication
+      serverInfo.httpClient = {
+        url: serverInfo.config.url,
+        timeout: serverInfo.config.timeout || 30000,
+        requestId: 1
+      }
+
+      // Test basic connectivity first
+      console.log(`Testing connectivity to ${serverInfo.config.url}`)
+      const testResponse = await fetch(serverInfo.config.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 0,
+          method: 'ping',
+          params: {}
+        }),
+        signal: AbortSignal.timeout(5000)
+      })
+
+      console.log(`Connectivity test response: ${testResponse.status} ${testResponse.statusText}`)
+
+      // Initialize MCP connection using JSON-RPC
+      console.log(`Sending MCP initialize request to ${serverName}`)
+      const initResponse = await this.sendMCPRequest(serverInfo, 'initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {
+          tools: {}
+        },
+        clientInfo: {
+          name: 'mcpchat',
+          version: '1.0.0'
+        }
+      })
+
+      if (!initResponse.result) {
+        throw new Error(`MCP initialization failed: ${JSON.stringify(initResponse)}`)
+      }
+
+      console.log(`HTTP MCP server ${serverName} initialized successfully:`, initResponse.result)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      console.error(`Failed to initialize HTTP MCP server ${serverName}:`, {
+        url: serverInfo.config.url,
+        error: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined
+      })
+      throw new Error(`Failed to initialize HTTP MCP server ${serverName} at ${serverInfo.config.url}: ${errorMessage}`)
+    }
+  }
+
+  /**
    * Start the MCP server process
    */
   private async startServerProcess(serverName: string): Promise<void> {
@@ -69,9 +143,13 @@ export class MCPServerManager {
       throw new Error(`Server ${serverName} not found`)
     }
 
+    if (!serverInfo.config.command) {
+      throw new Error(`Command is required for stdio transport for server ${serverName}`)
+    }
+
     return new Promise((resolve, reject) => {
       try {
-        const childProcess = spawn(serverInfo.config.command, serverInfo.config.args, {
+        const childProcess = spawn(serverInfo.config.command!, serverInfo.config.args || [], {
           env: { ...process.env, ...serverInfo.config.env },
           stdio: ['pipe', 'pipe', 'pipe']
         })
@@ -81,23 +159,46 @@ export class MCPServerManager {
         childProcess.on('error', (error: Error) => {
           serverInfo.status = 'error'
           serverInfo.error = `Process error: ${error.message}`
+          console.error(`MCP server ${serverName} process error:`, error)
           reject(error)
         })
 
         childProcess.on('exit', (code: number | null, signal: string | null) => {
           serverInfo.status = 'disconnected'
           serverInfo.error = `Process exited with code ${code}, signal ${signal}`
-          console.log(`MCP server ${serverName} exited`)
+          console.log(`MCP server ${serverName} exited with code ${code}, signal ${signal}`)
         })
 
-        // Give the process a moment to start
-        setTimeout(() => {
+        // Log stderr for debugging
+        if (childProcess.stderr) {
+          childProcess.stderr.on('data', (data) => {
+            console.error(`MCP server ${serverName} stderr:`, data.toString())
+          })
+        }
+
+        // Log stdout for debugging
+        if (childProcess.stdout) {
+          childProcess.stdout.on('data', (data) => {
+            console.log(`MCP server ${serverName} stdout:`, data.toString())
+          })
+        }
+
+        console.log(`Starting MCP server ${serverName} with command: ${serverInfo.config.command} ${serverInfo.config.args?.join(' ')}`)
+
+        // Give the process more time to start (uvx needs time to download packages)
+        const timeout = serverInfo.config.timeout || 30000 // Default 30 seconds
+        const timeoutId = setTimeout(() => {
           if (childProcess && !childProcess.killed) {
             resolve()
           } else {
-            reject(new Error('Process failed to start'))
+            reject(new Error(`Process failed to start within ${timeout}ms`))
           }
-        }, 1000)
+        }, timeout)
+
+        // Clear timeout if process exits early
+        childProcess.on('exit', () => {
+          clearTimeout(timeoutId)
+        })
       } catch (error) {
         reject(error)
       }
@@ -113,58 +214,78 @@ export class MCPServerManager {
       throw new Error(`Server ${serverName} not found`)
     }
 
-    // For now, simulate with default tools based on server name
-    if (serverName === 'gurddy') {
-      serverInfo.tools = [
-        {
-          name: 'run_example',
-          description: 'Run an example computation',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              example_type: { type: 'string', description: 'Type of example to run' }
-            },
-            required: ['example_type']
-          }
-        },
-        {
-          name: 'solve_n_queens',
-          description: 'Solve the N-Queens problem',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              n: { type: 'number', description: 'Size of the chessboard' }
-            },
-            required: ['n']
-          }
-        },
-        {
-          name: 'solve_sudoku',
-          description: 'Solve a Sudoku puzzle',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              puzzle: { type: 'array', description: 'Sudoku puzzle as 9x9 array' }
-            },
-            required: ['puzzle']
-          }
+    try {
+      if (serverInfo.config.transport === 'http') {
+        // Load tools via MCP JSON-RPC
+        const response = await this.sendMCPRequest(serverInfo, 'tools/list', {})
+        
+        if (response.result && response.result.tools) {
+          serverInfo.tools = response.result.tools.map((tool: any) => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema
+          }))
+        } else {
+          serverInfo.tools = []
         }
-      ]
-    } else {
-      // Default tools for other servers
-      serverInfo.tools = [
-        {
-          name: 'echo',
-          description: 'Echo back the input',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              message: { type: 'string', description: 'Message to echo' }
+      } else {
+        // For stdio servers, use default tools based on server name
+        if (serverName === 'gurddy') {
+          serverInfo.tools = [
+            {
+              name: 'run_example',
+              description: 'Run an example computation',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  example_type: { type: 'string', description: 'Type of example to run' }
+                },
+                required: ['example_type']
+              }
             },
-            required: ['message']
-          }
+            {
+              name: 'solve_n_queens',
+              description: 'Solve the N-Queens problem',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  n: { type: 'number', description: 'Size of the chessboard' }
+                },
+                required: ['n']
+              }
+            },
+            {
+              name: 'solve_sudoku',
+              description: 'Solve a Sudoku puzzle',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  puzzle: { type: 'array', description: 'Sudoku puzzle as 9x9 array' }
+                },
+                required: ['puzzle']
+              }
+            }
+          ]
+        } else {
+          // Default tools for other servers
+          serverInfo.tools = [
+            {
+              name: 'echo',
+              description: 'Echo back the input',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  message: { type: 'string', description: 'Message to echo' }
+                },
+                required: ['message']
+              }
+            }
+          ]
         }
-      ]
+      }
+    } catch (error) {
+      console.error(`Failed to load tools for server ${serverName}:`, error)
+      serverInfo.tools = []
     }
   }
 
@@ -203,8 +324,98 @@ export class MCPServerManager {
       throw new Error(`Tool ${toolName} not found on server ${serverName}`)
     }
 
-    // For now, simulate tool execution
-    return this.simulateToolExecution(toolName, args)
+    // Execute based on transport type
+    if (serverInfo.config.transport === 'http') {
+      return this.callHttpTool(serverInfo, toolName, args)
+    } else {
+      // For stdio, simulate for now (would need real MCP protocol implementation)
+      return this.simulateToolExecution(toolName, args)
+    }
+  }
+
+  /**
+   * Call tool via HTTP transport using MCP JSON-RPC
+   */
+  private async callHttpTool(serverInfo: any, toolName: string, args: Record<string, any>): Promise<MCPCallToolResponse> {
+    if (!serverInfo.httpClient) {
+      throw new Error('HTTP client not initialized')
+    }
+
+    try {
+      const response = await this.sendMCPRequest(serverInfo, 'tools/call', {
+        name: toolName,
+        arguments: args
+      })
+
+      if (response.error) {
+        throw new Error(`MCP tool call error: ${response.error.message}`)
+      }
+
+      return response.result
+    } catch (error) {
+      throw new Error(`HTTP tool execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  /**
+   * Send MCP JSON-RPC request
+   */
+  private async sendMCPRequest(serverInfo: any, method: string, params: any): Promise<any> {
+    if (!serverInfo.httpClient) {
+      throw new Error('HTTP client not initialized')
+    }
+
+    const requestId = serverInfo.httpClient.requestId++
+    const request = {
+      jsonrpc: '2.0',
+      id: requestId,
+      method: method,
+      params: params
+    }
+
+    console.log(`Sending MCP request to ${serverInfo.httpClient.url}:`, {
+      method,
+      id: requestId,
+      paramsKeys: Object.keys(params)
+    })
+
+    try {
+      const response = await fetch(serverInfo.httpClient.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(serverInfo.httpClient.timeout)
+      })
+
+      console.log(`MCP response status: ${response.status} ${response.statusText}`)
+
+      if (!response.ok) {
+        const responseText = await response.text()
+        console.error(`HTTP request failed with response:`, responseText)
+        throw new Error(`HTTP request failed: ${response.status} ${response.statusText} - ${responseText}`)
+      }
+
+      const result = await response.json()
+      console.log(`MCP response result:`, result)
+      
+      if (result.error) {
+        console.error(`MCP error response:`, result.error)
+        throw new Error(`MCP error: ${result.error.message || JSON.stringify(result.error)}`)
+      }
+
+      return result
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      console.error(`MCP request failed:`, {
+        url: serverInfo.httpClient.url,
+        method,
+        error: errorMessage,
+        request
+      })
+      throw new Error(`MCP request to ${method} failed: ${errorMessage}`)
+    }
   }
 
   /**
@@ -268,27 +479,33 @@ export class MCPServerManager {
     }
 
     try {
-      if (serverInfo.process && !serverInfo.process.killed) {
-        serverInfo.process.kill('SIGTERM')
-        
-        // Wait for graceful shutdown or force kill after timeout
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            if (serverInfo.process && !serverInfo.process.killed) {
-              serverInfo.process.kill('SIGKILL')
-            }
-            resolve()
-          }, 5000)
+      if (serverInfo.config.transport === 'http') {
+        // For HTTP, just clear the client
+        serverInfo.httpClient = undefined
+      } else {
+        // For stdio, terminate the process
+        if (serverInfo.process && !serverInfo.process.killed) {
+          serverInfo.process.kill('SIGTERM')
+          
+          // Wait for graceful shutdown or force kill after timeout
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => {
+              if (serverInfo.process && !serverInfo.process.killed) {
+                serverInfo.process.kill('SIGKILL')
+              }
+              resolve()
+            }, 5000)
 
-          serverInfo.process?.on('exit', () => {
-            clearTimeout(timeout)
-            resolve()
+            serverInfo.process?.on('exit', () => {
+              clearTimeout(timeout)
+              resolve()
+            })
           })
-        })
+        }
+        serverInfo.process = null
       }
 
       serverInfo.status = 'disconnected'
-      serverInfo.process = null
     } catch (error) {
       console.error(`Error shutting down MCP server ${serverName}:`, error)
     }
@@ -315,11 +532,16 @@ export class MCPServerManager {
         if (!mcpConfig.disabled) {
           const fullConfig: MCPServerConfig = {
             name: serverName,
+            transport: mcpConfig.transport || 'stdio',
             command: mcpConfig.command,
             args: mcpConfig.args || [],
             env: mcpConfig.env || {},
             autoApprove: mcpConfig.autoApprove || [],
-            disabled: mcpConfig.disabled || false
+            disabled: mcpConfig.disabled || false,
+            url: mcpConfig.url,
+            timeout: mcpConfig.timeout,
+            retryAttempts: mcpConfig.retryAttempts,
+            retryDelay: mcpConfig.retryDelay
           }
           
           servers[serverName] = fullConfig
