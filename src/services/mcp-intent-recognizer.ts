@@ -184,10 +184,10 @@ export class MCPIntentRecognizer {
       confidence += 0.1
     }
 
-    // 检查问题相关词汇
+    // 检查问题相关词汇 - 增加置信度权重
     const problemWords = ['solve', 'solution', 'problem', '解决', '求解', '问题']
     if (problemWords.some(word => input.includes(word))) {
-      confidence += 0.2
+      confidence += 0.3 // 从0.2提升到0.3
     }
 
     return confidence

@@ -419,14 +419,23 @@ export class MCPManager {
               
               // Register server in registry
               const server = new MCPServer(config)
-              // Server is already initialized by server manager, so we can add it directly
+              // Server is already initialized by server manager, so update status
+              server['status'].status = 'connected'
+              server['status'].lastPing = new Date()
+              server['lastPing'] = new Date()
+              
+              // Load tools from the server manager
+              const tools = await serverManager.getServerTools(serverName)
+              server['tools'] = tools
+              
               this.registry.servers.set(serverName, server)
             } catch (error) {
               console.error(`Failed to initialize server ${serverName}:`, error)
               
               // Register server with error status
               const server = new MCPServer(config)
-              // Don't try to initialize since it already failed
+              server['status'].status = 'error'
+              server['status'].error = error instanceof Error ? error.message : 'Unknown error'
               this.registry.servers.set(serverName, server)
             }
           }

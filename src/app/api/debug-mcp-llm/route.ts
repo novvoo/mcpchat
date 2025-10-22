@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   try {
     const { 
       message = "解决8皇后问题", 
-      testMode = "full_flow",
+      testMode = "smart_router", // 默认使用智能路由模式
       enableTracing = true 
     } = await request.json()
 
@@ -20,7 +20,34 @@ export async function POST(request: NextRequest) {
       message,
       timestamp: new Date().toISOString(),
       steps: [],
-      traces: []
+      traces: [],
+      llmDecision: null // 记录LLM的决策过程
+    }
+
+    // Step 0: Ensure MCP System is initialized
+    console.log('Step 0: Ensuring MCP System is initialized...')
+    try {
+      const smartRouter = getSmartRouter()
+      const isConnected = await smartRouter.testMCPConnection()
+      
+      results.steps.push({
+        step: 'mcp_initialization',
+        success: isConnected,
+        data: { isConnected }
+      })
+      
+      if (isConnected) {
+        console.log('✅ MCP System initialized and connected')
+      } else {
+        console.log('⚠️ MCP System not connected, tools may not be available')
+      }
+    } catch (error) {
+      results.steps.push({
+        step: 'mcp_initialization',
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      })
+      console.log('❌ MCP System initialization failed:', error)
     }
 
     // Step 1: Test MCP Tools Service
@@ -202,9 +229,9 @@ When you need to use a tool, respond with a tool call.`
       console.log('❌ LLM with tools failed:', error)
     }
 
-    // Step 4: Test Smart Router (if full flow)
-    if (testMode === 'full_flow') {
-      console.log('Step 4: Testing Smart Router full flow...')
+    // Step 4: Test Smart Router (新的智能路由流程)
+    if (testMode === 'smart_router' || testMode === 'full_flow') {
+      console.log('Step 4: Testing Smart Router with LLM-driven tool selection...')
       try {
         if (enableTracing) {
           results.traces.push({
@@ -226,9 +253,22 @@ When you need to use a tool, respond with a tool call.`
             data: {
               executionTime: routerEndTime - routerStartTime,
               source: routerResponse.source,
-              response: routerResponse.response
+              response: routerResponse.response,
+              reasoning: routerResponse.reasoning
             }
           })
+        }
+
+        // 记录LLM的决策
+        results.llmDecision = {
+          source: routerResponse.source,
+          usedTools: routerResponse.toolResults && routerResponse.toolResults.length > 0,
+          toolCount: routerResponse.toolResults?.length || 0,
+          toolCalls: routerResponse.toolCalls?.map(tc => ({
+            name: tc.name,
+            parameters: tc.parameters
+          })),
+          reasoning: routerResponse.reasoning
         }
 
         results.steps.push({
@@ -239,10 +279,14 @@ When you need to use a tool, respond with a tool call.`
             source: routerResponse.source,
             hasToolResults: !!(routerResponse.toolResults && routerResponse.toolResults.length > 0),
             toolResultCount: routerResponse.toolResults?.length || 0,
-            conversationId: routerResponse.conversationId
+            conversationId: routerResponse.conversationId,
+            finalResponse: routerResponse.response,
+            reasoning: routerResponse.reasoning
           }
         })
         console.log('✅ Smart Router completed:', routerResponse.source)
+        console.log('   Reasoning:', routerResponse.reasoning)
+        console.log('   Response preview:', routerResponse.response.substring(0, 200))
       } catch (error) {
         results.steps.push({
           step: 'smart_router',
@@ -251,6 +295,69 @@ When you need to use a tool, respond with a tool call.`
         })
         console.log('❌ Smart Router failed:', error)
       }
+    }
+
+    // Step 5: 测试不同类型的输入
+    if (testMode === 'test_cases') {
+      console.log('Step 5: Testing multiple input cases...')
+      
+      const testCases = [
+        { input: "解决8皇后问题", expectedBehavior: "should_use_tool" },
+        { input: "什么是N皇后问题？", expectedBehavior: "should_not_use_tool" },
+        { input: "帮我解这个数独", expectedBehavior: "should_use_tool" },
+        { input: "数独游戏的规则是什么？", expectedBehavior: "should_not_use_tool" },
+        { input: "你好", expectedBehavior: "should_not_use_tool" }
+      ]
+
+      const testResults = []
+      const smartRouter = getSmartRouter()
+
+      for (const testCase of testCases) {
+        try {
+          console.log(`\nTesting: "${testCase.input}"`)
+          const startTime = Date.now()
+          const response = await smartRouter.processMessage(testCase.input)
+          const endTime = Date.now()
+
+          const usedTools = response.toolResults && response.toolResults.length > 0
+          const behaviorMatch = 
+            (testCase.expectedBehavior === "should_use_tool" && usedTools) ||
+            (testCase.expectedBehavior === "should_not_use_tool" && !usedTools)
+
+          testResults.push({
+            input: testCase.input,
+            expectedBehavior: testCase.expectedBehavior,
+            actualBehavior: usedTools ? "used_tool" : "direct_llm",
+            behaviorMatch,
+            source: response.source,
+            executionTime: endTime - startTime,
+            toolsUsed: response.toolCalls?.map(tc => tc.name) || [],
+            responsePreview: response.response.substring(0, 100)
+          })
+
+          console.log(`  ✓ Source: ${response.source}`)
+          console.log(`  ✓ Used tools: ${usedTools ? 'Yes' : 'No'}`)
+          console.log(`  ✓ Behavior match: ${behaviorMatch ? 'Yes' : 'No'}`)
+        } catch (error) {
+          testResults.push({
+            input: testCase.input,
+            expectedBehavior: testCase.expectedBehavior,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            behaviorMatch: false
+          })
+          console.log(`  ✗ Error: ${error}`)
+        }
+      }
+
+      results.steps.push({
+        step: 'test_cases',
+        success: true,
+        data: {
+          totalCases: testCases.length,
+          passedCases: testResults.filter(r => r.behaviorMatch).length,
+          testResults
+        }
+      })
     }
 
     // Summary

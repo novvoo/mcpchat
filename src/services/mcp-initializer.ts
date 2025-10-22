@@ -173,8 +173,32 @@ export class MCPInitializer {
       if (tools.length === 0) {
         throw new Error('没有可用的MCP工具')
       }
+
+      // 自动索引工具到向量数据库
+      await this.indexToolsToVectorStore(tools)
     } catch (error) {
       throw new Error(`工具信息加载失败: ${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }
+
+  /**
+   * 索引工具到向量数据库
+   */
+  private async indexToolsToVectorStore(tools: Tool[]): Promise<void> {
+    try {
+      console.log('开始索引工具到向量数据库...')
+      
+      const { getToolIndexer } = await import('./tool-indexer')
+      const indexer = getToolIndexer()
+      
+      // 触发后台索引（不阻塞初始化流程）
+      indexer.indexAllTools().catch(error => {
+        console.warn('工具索引失败（不影响系统运行）:', error)
+      })
+      
+      console.log('工具索引已在后台启动')
+    } catch (error) {
+      console.warn('无法启动工具索引（不影响系统运行）:', error)
     }
   }
 

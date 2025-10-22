@@ -26,7 +26,7 @@ export interface SmartRouterResponse {
 export class SmartRouter {
   private static instance: SmartRouter
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): SmartRouter {
     if (!SmartRouter.instance) {
@@ -38,18 +38,15 @@ export class SmartRouter {
   /**
    * 智能处理用户消息 - 完整流程
    * 
-   * 流程步骤：
+   * 新流程步骤：
    * 1. 初始化MCP配置和工具信息
-   * 2. 动态初始化工具关键词映射
-   * 3. 用户输入识别 - 判断是否匹配MCP工具
-   * 4. 如果匹配MCP工具：
-   *    a. 将用户prompt转换为MCP规定格式
-   *    b. 调用MCP工具执行
-   *    c. 整理MCP返回结果并输出
-   * 5. 如果不匹配MCP工具：
-   *    a. 调用LLM处理
-   *    b. 如果LLM返回工具调用，再执行MCP工具
-   *    c. 整理最终结果输出
+   * 2. 通过LLM分析用户输入，判断是否需要使用MCP工具
+   * 3. LLM识别出需要的工具和参数
+   * 4. 如果LLM返回工具调用：
+   *    a. 执行MCP工具
+   *    b. 将结果返回给LLM生成最终回复
+   * 5. 如果LLM不返回工具调用：
+   *    a. 直接返回LLM的回复
    */
   async processMessage(
     userMessage: string,
@@ -62,14 +59,11 @@ export class SmartRouter {
     } = {}
   ): Promise<SmartRouterResponse> {
     const {
-      enableMCPFirst = true,
-      enableLLMFallback = true,
-      mcpConfidenceThreshold = 0.6,
       maxToolCalls = 5
     } = options
 
     const conversationManager = getConversationManager()
-    
+
     // 确保有会话ID并且会话存在
     let activeConversationId = conversationId
     if (!activeConversationId) {
@@ -93,76 +87,29 @@ export class SmartRouter {
       // 第0步：确保MCP系统已初始化
       await this.ensureMCPSystemReady()
 
-      // 第一步：MCP意图识别
-      if (enableMCPFirst) {
-        const intentRecognizer = getMCPIntentRecognizer()
-        const intent = await intentRecognizer.recognizeIntent(userMessage)
-        
-        console.log(`MCP Intent Recognition:`, {
-          shouldUseMCP: intent.shouldUseMCP,
-          confidence: intent.confidence,
-          matchedTool: intent.matchedTool,
-          reasoning: intent.reasoning
-        })
+      // 核心流程：直接使用LLM处理，让LLM决定是否需要调用工具
+      console.log('Using LLM to analyze user intent and decide tool usage')
 
-        // 如果置信度足够高，直接使用MCP
-        if (intent.shouldUseMCP && intent.confidence >= mcpConfidenceThreshold && intent.matchedTool) {
-          console.log(`Using MCP directly: ${intent.matchedTool}`)
-          
-          try {
-            const mcpResponse = await this.executeMCPTool(
-              intent.matchedTool,
-              intent.extractedParams || {},
-              activeConversationId
-            )
+      const llmResponse = await this.processWithLLM(
+        userMessage,
+        activeConversationId,
+        maxToolCalls
+      )
 
-            return {
-              response: mcpResponse.response,
-              source: 'mcp',
-              toolResults: mcpResponse.toolResults,
-              conversationId: activeConversationId,
-              confidence: intent.confidence,
-              reasoning: `Direct MCP execution: ${intent.reasoning}`
-            }
-          } catch (error) {
-            console.error('MCP direct execution failed:', error)
-            
-            // 如果MCP执行失败，根据配置决定是否回退到LLM
-            if (!enableLLMFallback) {
-              throw error
-            }
-            
-            console.log('Falling back to LLM due to MCP execution failure')
-          }
-        }
+      return {
+        response: llmResponse.response,
+        source: llmResponse.toolResults && llmResponse.toolResults.length > 0 ? 'hybrid' : 'llm',
+        toolCalls: llmResponse.toolCalls,
+        toolResults: llmResponse.toolResults,
+        conversationId: activeConversationId,
+        reasoning: llmResponse.toolResults && llmResponse.toolResults.length > 0
+          ? 'LLM identified need for tools and executed them'
+          : 'LLM handled directly without tools'
       }
-
-      // 第二步：使用LLM处理
-      if (enableLLMFallback) {
-        console.log('Using LLM for processing')
-        
-        const llmResponse = await this.processWithLLM(
-          userMessage,
-          activeConversationId,
-          maxToolCalls
-        )
-
-        return {
-          response: llmResponse.response,
-          source: llmResponse.toolResults && llmResponse.toolResults.length > 0 ? 'hybrid' : 'llm',
-          toolCalls: llmResponse.toolCalls,
-          toolResults: llmResponse.toolResults,
-          conversationId: activeConversationId,
-          reasoning: 'Processed via LLM' + (llmResponse.toolResults ? ' with tool calls' : '')
-        }
-      }
-
-      // 如果两种方式都不可用
-      throw new Error('No processing method available')
 
     } catch (error) {
       console.error('Error in smart router:', error)
-      
+
       // 添加错误消息到会话
       const errorMsg = conversationManager.createSystemMessage(
         `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -243,7 +190,7 @@ export class SmartRouter {
   }
 
   /**
-   * 使用LLM处理消息（包含可能的工具调用）
+   * 使用LLM处理消息（两阶段智能工具选择）
    */
   private async processWithLLM(
     userMessage: string,
@@ -267,9 +214,9 @@ export class SmartRouter {
 
     // 获取会话上下文
     const messages = conversationManager.getMessagesForLLM(conversationId)
-    
-    // 添加工具定义
-    await this.addToolDefinitionsToMessages(messages)
+
+    // 使用向量搜索选择相关工具并添加到消息中
+    await this.addToolDefinitionsToMessages(messages, userMessage)
 
     // 发送到LLM
     let llmResponse = await llmService.sendMessage(messages)
@@ -279,11 +226,11 @@ export class SmartRouter {
     // 处理工具调用
     while (llmResponse.toolCalls && llmResponse.toolCalls.length > 0 && toolCallCount < maxToolCalls) {
       console.log(`Processing ${llmResponse.toolCalls.length} tool calls from LLM (iteration ${toolCallCount + 1})`)
-      
+
       // 执行工具调用
       const toolResults = await this.executeToolCallsFromLLM(llmResponse.toolCalls)
       allToolResults.push(...toolResults)
-      
+
       // 添加助手消息和工具结果到会话
       const assistantMsg = conversationManager.createAssistantMessage(
         llmResponse.content || 'Executing tools...',
@@ -314,6 +261,8 @@ export class SmartRouter {
       toolResults: allToolResults.length > 0 ? allToolResults : undefined
     }
   }
+
+
 
   /**
    * 执行来自LLM的工具调用
@@ -356,15 +305,53 @@ export class SmartRouter {
   }
 
   /**
-   * 添加工具定义到消息中
+   * 添加工具定义到消息中（使用向量搜索）
    */
-  private async addToolDefinitionsToMessages(messages: ChatMessage[]): Promise<void> {
+  private async addToolDefinitionsToMessages(
+    messages: ChatMessage[],
+    userQuery: string
+  ): Promise<void> {
     try {
       const mcpToolsService = getMCPToolsService()
-      const availableTools = await mcpToolsService.getAvailableTools()
+      const allTools = await mcpToolsService.getAvailableTools()
+      let relevantTools: Array<{ name: string; description: string; inputSchema: any }> = []
 
-      if (availableTools.length > 0) {
-        const toolDefinitions = availableTools.map(tool => ({
+      // 如果工具数量少，直接使用所有工具
+      if (allTools.length <= 5) {
+        console.log('Tool count <= 5, using all tools')
+        relevantTools = allTools
+      } else {
+        // 尝试使用向量搜索
+        try {
+          const { getToolVectorStore } = await import('./tool-vector-store')
+          const vectorStore = getToolVectorStore()
+
+          if (vectorStore.isReady()) {
+            console.log('Using vector search to find relevant tools')
+            const searchResults = await vectorStore.searchTools(userQuery, 5)
+
+            if (searchResults.length > 0) {
+              relevantTools = searchResults.map(result => result.tool)
+              console.log(`Vector search found ${relevantTools.length} relevant tools:`)
+              searchResults.forEach(result => {
+                console.log(`  - ${result.tool.name} (similarity: ${result.similarity.toFixed(3)})`)
+              })
+            } else {
+              console.log('Vector search returned no results, using keyword matching')
+              relevantTools = this.filterRelevantTools(allTools, userQuery)
+            }
+          } else {
+            console.log('Vector store not ready, using keyword matching')
+            relevantTools = this.filterRelevantTools(allTools, userQuery)
+          }
+        } catch (error) {
+          console.warn('Vector search failed, using keyword matching:', error)
+          relevantTools = this.filterRelevantTools(allTools, userQuery)
+        }
+      }
+
+      if (relevantTools.length > 0) {
+        const toolDefinitions = relevantTools.map(tool => ({
           name: tool.name,
           description: tool.description,
           parameters: tool.inputSchema
@@ -372,11 +359,24 @@ export class SmartRouter {
 
         const systemMessage: ChatMessage = {
           role: 'system',
-          content: `You have access to the following tools. Use them when appropriate to help the user:
+          content: `你是一个智能助手，可以使用工具来帮助用户解决问题。
+
+你有以下工具可用：
 
 ${JSON.stringify(toolDefinitions, null, 2)}
 
-When you need to use a tool, respond with a tool call. The user will see the tool results and you can then provide a final response based on those results.`
+重要指示：
+1. 仔细分析用户的问题，判断是否需要使用工具
+2. 如果用户的问题可以通过工具解决（如求解数学问题、运行算法等），你应该调用相应的工具
+3. 如果用户只是在询问信息、寻求建议或进行一般对话，直接回答即可，不需要调用工具
+4. 当你决定使用工具时，请准确提取用户输入中的参数
+5. 工具执行后，你会收到结果，然后基于结果给用户一个友好的回复
+
+示例：
+- "解决8皇后问题" → 应该调用 solve_n_queens 工具，参数 n=8
+- "什么是N皇后问题？" → 直接回答，不需要调用工具
+- "帮我解这个数独" → 应该调用 solve_sudoku 工具
+- "数独游戏的规则是什么？" → 直接回答，不需要调用工具`
         }
 
         // 插入到系统消息之后
@@ -393,6 +393,78 @@ When you need to use a tool, respond with a tool call. The user will see the too
   }
 
   /**
+   * 过滤与用户查询相关的工具
+   */
+  private filterRelevantTools(
+    tools: Array<{ name: string; description: string; inputSchema: any }>,
+    userQuery: string
+  ): Array<{ name: string; description: string; inputSchema: any }> {
+    // 如果工具数量较少，直接返回所有工具
+    if (tools.length <= 5) {
+      return tools
+    }
+
+    const queryLower = userQuery.toLowerCase()
+    const queryWords = queryLower.split(/\s+/)
+
+    // 为每个工具计算相关性分数
+    const scoredTools = tools.map(tool => {
+      let score = 0
+      const toolText = `${tool.name} ${tool.description}`.toLowerCase()
+
+      // 检查工具名称直接匹配
+      if (queryLower.includes(tool.name.toLowerCase())) {
+        score += 10
+      }
+
+      // 检查关键词匹配
+      for (const word of queryWords) {
+        if (word.length < 3) continue // 跳过太短的词
+        if (toolText.includes(word)) {
+          score += 2
+        }
+      }
+
+      // 特殊关键词匹配
+      const keywordMap: Record<string, string[]> = {
+        'queens': ['皇后', 'queen', 'n-queen', 'n_queen'],
+        'sudoku': ['数独', 'sudoku'],
+        'graph': ['图', 'graph', '图论', '着色', 'coloring'],
+        'map': ['地图', 'map', '着色', 'coloring'],
+        'lp': ['线性规划', 'linear', 'programming', 'lp', 'optimization'],
+        'production': ['生产', 'production', '规划', 'planning'],
+        'minimax': ['极小极大', 'minimax', '博弈', 'game'],
+        'portfolio': ['投资', 'portfolio', '组合'],
+        'facility': ['设施', 'facility', '选址', 'location'],
+        'statistical': ['统计', 'statistical', '拟合', 'fitting']
+      }
+
+      for (const [key, keywords] of Object.entries(keywordMap)) {
+        if (tool.name.toLowerCase().includes(key)) {
+          for (const keyword of keywords) {
+            if (queryLower.includes(keyword)) {
+              score += 5
+            }
+          }
+        }
+      }
+
+      return { tool, score }
+    })
+
+    // 按分数排序并取前8个工具
+    const sortedTools = scoredTools.sort((a, b) => b.score - a.score)
+    const topTools = sortedTools.slice(0, 8).map(item => item.tool)
+
+    // 如果没有任何工具得分，返回前8个工具
+    if (sortedTools[0].score === 0) {
+      return tools.slice(0, 8)
+    }
+
+    return topTools
+  }
+
+  /**
    * 格式化MCP工具执行结果
    */
   private formatMCPResult(toolName: string, result: any, params: Record<string, any>): string {
@@ -403,7 +475,7 @@ When you need to use a tool, respond with a tool call. The user will see the too
           .filter((item: any) => item.type === 'text')
           .map((item: any) => item.text)
           .join('\n')
-        
+
         if (textContent) {
           return this.addContextToResult(toolName, textContent, params)
         }
@@ -467,14 +539,14 @@ When you need to use a tool, respond with a tool call. The user will see the too
   private async ensureMCPSystemReady(): Promise<void> {
     if (!isMCPSystemReady()) {
       console.log('MCP系统未就绪，开始初始化...')
-      
+
       const initializer = getMCPInitializer()
       const status = await initializer.initialize()
-      
+
       if (!status.ready) {
         throw new Error(`MCP系统初始化失败: ${status.error || '未知错误'}`)
       }
-      
+
       console.log('MCP系统初始化完成')
     }
   }
@@ -505,7 +577,7 @@ When you need to use a tool, respond with a tool call. The user will see the too
     try {
       const mcpToolsService = getMCPToolsService()
       const tools = await mcpToolsService.getAvailableTools()
-      
+
       return tools.map(tool => ({
         name: tool.name,
         description: tool.description,

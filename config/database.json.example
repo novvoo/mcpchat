@@ -1,0 +1,19 @@
+{
+    "postgresql": {
+        "host": "postgres",
+        "port": 5432,
+        "database": "mcp_tools",
+        "user": "root",
+        "password": "123456",
+        "ssl": false,
+        "pool": {
+            "min": 2,
+            "max": 10
+        }
+    },
+    "pgvector": {
+        "enabled": true,
+        "similarityThreshold": 0.7,
+        "maxResults": 5
+    }
+}

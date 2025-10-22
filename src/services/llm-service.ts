@@ -251,25 +251,34 @@ export class OpenAICompatibleLLMService implements LLMService {
       const choice = response.choices[0]
       const message = choice.message
 
-      if (!message || !message.content) {
-        throw new Error('Invalid response format: missing message content')
-      }
-
-      const chatResponse: ChatResponse = {
-        content: message.content,
-        usage: response.usage ? {
-          promptTokens: response.usage.prompt_tokens || 0,
-          completionTokens: response.usage.completion_tokens || 0
-        } : undefined
+      if (!message) {
+        throw new Error('Invalid response format: missing message')
       }
 
       // Handle tool calls if present
+      let toolCalls: ToolCall[] | undefined
       if (message.tool_calls && Array.isArray(message.tool_calls)) {
-        chatResponse.toolCalls = message.tool_calls.map((tc: any) => ({
+        toolCalls = message.tool_calls.map((tc: any) => ({
           id: tc.id || `call_${Date.now()}`,
           name: tc.function?.name || tc.name,
           parameters: tc.function?.arguments ? JSON.parse(tc.function.arguments) : tc.parameters || {}
         }))
+      }
+
+      // Content is optional when tool calls are present
+      const content = message.content || (toolCalls ? '' : null)
+      
+      if (content === null) {
+        throw new Error('Invalid response format: missing message content and no tool calls')
+      }
+
+      const chatResponse: ChatResponse = {
+        content,
+        usage: response.usage ? {
+          promptTokens: response.usage.prompt_tokens || 0,
+          completionTokens: response.usage.completion_tokens || 0
+        } : undefined,
+        toolCalls
       }
 
       return chatResponse
@@ -307,7 +316,9 @@ export class OpenAICompatibleLLMService implements LLMService {
         )
       }
 
-      if (message.content.length > DEFAULT_CONFIG.MAX_MESSAGE_LENGTH) {
+      // Skip length validation for system messages with tool definitions
+      // as they can be quite large
+      if (message.role !== 'system' && message.content.length > DEFAULT_CONFIG.MAX_MESSAGE_LENGTH) {
         throw new LLMServiceError(
           `Message ${i} exceeds maximum length of ${DEFAULT_CONFIG.MAX_MESSAGE_LENGTH} characters`,
           HTTP_STATUS.BAD_REQUEST
