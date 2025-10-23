@@ -1,6 +1,6 @@
 // Smart Router - 智能路由服务，决定是否使用MCP还是LLM
 
-import { ChatMessage, ChatResponse, ToolCall, ToolResult } from '@/types'
+import { ChatMessage, ToolCall, ToolResult } from '@/types'
 import { getMCPIntentRecognizer } from './mcp-intent-recognizer'
 import { getMCPToolsService } from './mcp-tools'
 import { getLLMService } from './llm-service'
@@ -36,17 +36,19 @@ export class SmartRouter {
   }
 
   /**
-   * 智能处理用户消息 - 完整流程
+   * 智能处理用户消息 - 架构要求的正确流程
    * 
-   * 新流程步骤：
-   * 1. 初始化MCP配置和工具信息
-   * 2. 通过LLM分析用户输入，判断是否需要使用MCP工具
-   * 3. LLM识别出需要的工具和参数
-   * 4. 如果LLM返回工具调用：
-   *    a. 执行MCP工具
-   *    b. 将结果返回给LLM生成最终回复
-   * 5. 如果LLM不返回工具调用：
-   *    a. 直接返回LLM的回复
+   * 重要架构原则：绝对不能在LLM请求中包含MCP工具信息
+   * MCP工具选择和执行通过PostgreSQL/pgvector处理，与LLM完全分离
+   * 
+   * 正确流程步骤：
+   * 1. Smart Router 通过PostgreSQL/pgvector分析用户输入，判断意图
+   * 2. 如果识别出需要特定MCP工具：
+   *    a. 直接执行MCP工具（通过PostgreSQL/pgvector选择）
+   *    b. 返回工具执行结果
+   * 3. 如果不需要特定工具或工具执行失败：
+   *    a. 发送给LLM处理（纯对话模式，不包含任何工具信息）
+   *    b. 返回LLM响应
    */
   async processMessage(
     userMessage: string,
@@ -59,6 +61,9 @@ export class SmartRouter {
     } = {}
   ): Promise<SmartRouterResponse> {
     const {
+      enableMCPFirst = true,
+      enableLLMFallback = true,
+      mcpConfidenceThreshold = 0.5,
       maxToolCalls = 5
     } = options
 
@@ -87,8 +92,56 @@ export class SmartRouter {
       // 第0步：确保MCP系统已初始化
       await this.ensureMCPSystemReady()
 
-      // 核心流程：直接使用LLM处理，让LLM决定是否需要调用工具
-      console.log('Using LLM to analyze user intent and decide tool usage')
+      // 第1步：Smart Router 分析用户意图
+      if (enableMCPFirst) {
+        console.log('Step 1: Smart Router analyzing user intent for MCP tools')
+        
+        const intentRecognizer = getMCPIntentRecognizer()
+        const intent = await intentRecognizer.recognizeIntent(userMessage)
+        
+        console.log(`Intent recognition result:`, {
+          needsMCP: intent.needsMCP,
+          confidence: intent.confidence,
+          suggestedTool: intent.suggestedTool,
+          reasoning: intent.reasoning
+        })
+
+        // 第2步：如果Smart Router识别出需要MCP工具且置信度足够
+        if (intent.needsMCP && intent.confidence >= mcpConfidenceThreshold && intent.suggestedTool) {
+          console.log(`Step 2: Smart Router decided to use MCP tool directly: ${intent.suggestedTool}`)
+          
+          try {
+            const mcpResult = await this.executeMCPTool(
+              intent.suggestedTool,
+              intent.parameters || {},
+              activeConversationId
+            )
+
+            console.log(`MCP tool ${intent.suggestedTool} executed successfully, returning result directly`)
+            return {
+              response: mcpResult.response,
+              source: 'mcp',
+              toolResults: mcpResult.toolResults,
+              conversationId: activeConversationId,
+              confidence: intent.confidence,
+              reasoning: `Smart Router directly executed ${intent.suggestedTool} tool with ${(intent.confidence * 100).toFixed(1)}% confidence`
+            }
+          } catch (error) {
+            console.error(`MCP tool execution failed:`, error)
+            
+            if (!enableLLMFallback) {
+              throw error
+            }
+            console.log('Falling back to LLM due to tool execution failure')
+            // 继续到LLM处理
+          }
+        } else {
+          console.log(`Step 2: Smart Router decided NOT to use MCP tools directly (needsMCP: ${intent.needsMCP}, confidence: ${intent.confidence}, threshold: ${mcpConfidenceThreshold})`)
+        }
+      }
+
+      // 第3步：使用LLM处理（当Smart Router没有识别到合适的工具，或工具执行失败时）
+      console.log('Step 3: Using LLM to process message (either as primary path or fallback)')
 
       const llmResponse = await this.processWithLLM(
         userMessage,
@@ -190,19 +243,21 @@ export class SmartRouter {
   }
 
   /**
-   * 使用LLM处理消息（两阶段智能工具选择）
+   * 使用LLM处理消息（纯对话模式）
+   * 
+   * 重要：根据架构要求，LLM不处理工具选择和调用
+   * 工具选择通过PostgreSQL/pgvector在Smart Router层面处理
    */
   private async processWithLLM(
     userMessage: string,
     conversationId: string,
-    maxToolCalls: number
+    _maxToolCalls: number
   ): Promise<{
     response: string
     toolCalls?: ToolCall[]
     toolResults?: ToolResult[]
   }> {
     const llmService = getLLMService()
-    const mcpToolsService = getMCPToolsService()
     const conversationManager = getConversationManager()
 
     // 确保会话存在
@@ -215,40 +270,18 @@ export class SmartRouter {
     // 获取会话上下文
     const messages = conversationManager.getMessagesForLLM(conversationId)
 
-    // 使用向量搜索选择相关工具并添加到消息中
+    // 添加基本系统消息（不包含工具定义）
     await this.addToolDefinitionsToMessages(messages, userMessage)
 
-    // 发送到LLM
-    let llmResponse = await llmService.sendMessage(messages)
-    let toolCallCount = 0
-    let allToolResults: ToolResult[] = []
+    // 发送到LLM - 纯对话模式，不包含工具信息
+    console.log('Sending message to LLM in pure conversation mode (no tool definitions)')
+    const llmResponse = await llmService.sendMessage(messages)
 
-    // 处理工具调用
-    while (llmResponse.toolCalls && llmResponse.toolCalls.length > 0 && toolCallCount < maxToolCalls) {
-      console.log(`Processing ${llmResponse.toolCalls.length} tool calls from LLM (iteration ${toolCallCount + 1})`)
-
-      // 执行工具调用
-      const toolResults = await this.executeToolCallsFromLLM(llmResponse.toolCalls)
-      allToolResults.push(...toolResults)
-
-      // 添加助手消息和工具结果到会话
-      const assistantMsg = conversationManager.createAssistantMessage(
-        llmResponse.content || 'Executing tools...',
-        llmResponse.toolCalls
-      )
-      conversationManager.addMessage(conversationId, assistantMsg)
-
-      for (const result of toolResults) {
-        const toolResultMsg = conversationManager.createSystemMessage(
-          `Tool ${result.toolCallId} result: ${JSON.stringify(result.result)}`
-        )
-        conversationManager.addMessage(conversationId, toolResultMsg)
-      }
-
-      // 获取更新的会话上下文并再次发送到LLM
-      const updatedMessages = conversationManager.getMessagesForLLM(conversationId)
-      llmResponse = await llmService.sendMessage(updatedMessages)
-      toolCallCount++
+    // 根据架构要求，LLM不应该返回工具调用
+    // 如果LLM意外返回了工具调用，记录警告但不执行
+    if (llmResponse.toolCalls && llmResponse.toolCalls.length > 0) {
+      console.warn('LLM returned tool calls, but according to architecture, tools should be handled by Smart Router via PostgreSQL/pgvector')
+      console.warn('Ignoring tool calls from LLM:', llmResponse.toolCalls)
     }
 
     // 添加最终响应到会话
@@ -257,138 +290,48 @@ export class SmartRouter {
 
     return {
       response: llmResponse.content,
-      toolCalls: llmResponse.toolCalls,
-      toolResults: allToolResults.length > 0 ? allToolResults : undefined
+      // 根据架构要求，不返回工具调用信息
+      toolCalls: undefined,
+      toolResults: undefined
     }
   }
 
 
 
-  /**
-   * 执行来自LLM的工具调用
-   */
-  private async executeToolCallsFromLLM(toolCalls: ToolCall[]): Promise<ToolResult[]> {
-    const mcpToolsService = getMCPToolsService()
-    const results: ToolResult[] = []
 
-    // 并行执行工具调用
-    const executionPromises = toolCalls.map(async (toolCall) => {
-      try {
-        const executionResult = await mcpToolsService.executeTool(
-          toolCall.name,
-          toolCall.parameters,
-          {
-            timeout: 30000,
-            retryAttempts: 2,
-            validateInput: true
-          }
-        )
-
-        return {
-          toolCallId: toolCall.id,
-          result: executionResult.success ? executionResult.result : null,
-          error: executionResult.success ? undefined : executionResult.error?.message
-        }
-      } catch (error) {
-        return {
-          toolCallId: toolCall.id,
-          result: null,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
-      }
-    })
-
-    const executionResults = await Promise.all(executionPromises)
-    results.push(...executionResults)
-
-    return results
-  }
 
   /**
    * 添加工具定义到消息中（使用向量搜索）
+   * 
+   * 重要：根据架构要求，绝对不能在LLM请求中包含MCP工具信息
+   * MCP工具的选择和执行通过PostgreSQL/pgvector处理，与LLM无关
    */
   private async addToolDefinitionsToMessages(
     messages: ChatMessage[],
     userQuery: string
   ): Promise<void> {
-    try {
-      const mcpToolsService = getMCPToolsService()
-      const allTools = await mcpToolsService.getAvailableTools()
-      let relevantTools: Array<{ name: string; description: string; inputSchema: any }> = []
-
-      // 如果工具数量少，直接使用所有工具
-      if (allTools.length <= 5) {
-        console.log('Tool count <= 5, using all tools')
-        relevantTools = allTools
-      } else {
-        // 尝试使用向量搜索
-        try {
-          const { getToolVectorStore } = await import('./tool-vector-store')
-          const vectorStore = getToolVectorStore()
-
-          if (vectorStore.isReady()) {
-            console.log('Using vector search to find relevant tools')
-            const searchResults = await vectorStore.searchTools(userQuery, 5)
-
-            if (searchResults.length > 0) {
-              relevantTools = searchResults.map(result => result.tool)
-              console.log(`Vector search found ${relevantTools.length} relevant tools:`)
-              searchResults.forEach(result => {
-                console.log(`  - ${result.tool.name} (similarity: ${result.similarity.toFixed(3)})`)
-              })
-            } else {
-              console.log('Vector search returned no results, using keyword matching')
-              relevantTools = this.filterRelevantTools(allTools, userQuery)
-            }
-          } else {
-            console.log('Vector store not ready, using keyword matching')
-            relevantTools = this.filterRelevantTools(allTools, userQuery)
-          }
-        } catch (error) {
-          console.warn('Vector search failed, using keyword matching:', error)
-          relevantTools = this.filterRelevantTools(allTools, userQuery)
-        }
-      }
-
-      if (relevantTools.length > 0) {
-        const toolDefinitions = relevantTools.map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.inputSchema
-        }))
-
-        const systemMessage: ChatMessage = {
-          role: 'system',
-          content: `你是一个智能助手，可以使用工具来帮助用户解决问题。
-
-你有以下工具可用：
-
-${JSON.stringify(toolDefinitions, null, 2)}
+    // 根据架构要求：绝对不能在LLM请求中包含MCP工具信息
+    // MCP工具选择通过PostgreSQL/pgvector处理，与LLM无关
+    console.log('Skipping tool definitions addition to LLM messages - MCP tools handled separately via PostgreSQL/pgvector')
+    
+    // 只添加基本的系统消息，不包含任何工具定义
+    const systemMessage: ChatMessage = {
+      role: 'system',
+      content: `你是一个智能助手，专注于回答用户的问题和提供帮助。
 
 重要指示：
-1. 仔细分析用户的问题，判断是否需要使用工具
-2. 如果用户的问题可以通过工具解决（如求解数学问题、运行算法等），你应该调用相应的工具
-3. 如果用户只是在询问信息、寻求建议或进行一般对话，直接回答即可，不需要调用工具
-4. 当你决定使用工具时，请准确提取用户输入中的参数
-5. 工具执行后，你会收到结果，然后基于结果给用户一个友好的回复
+1. 仔细理解用户的问题并提供准确、有用的回答
+2. 如果用户询问技术问题，提供详细的解释和建议
+3. 保持友好、专业的语调
+4. 如果不确定答案，诚实地说明并建议用户寻求更专业的帮助
 
-示例：
-- "解决8皇后问题" → 应该调用 solve_n_queens 工具，参数 n=8
-- "什么是N皇后问题？" → 直接回答，不需要调用工具
-- "帮我解这个数独" → 应该调用 solve_sudoku 工具
-- "数独游戏的规则是什么？" → 直接回答，不需要调用工具`
-        }
+你的主要职责是通过对话为用户提供信息和建议。`
+    }
 
-        // 插入到系统消息之后
-        const firstNonSystemIndex = messages.findIndex(msg => msg.role !== 'system')
-        if (firstNonSystemIndex === -1) {
-          messages.push(systemMessage)
-        } else {
-          messages.splice(firstNonSystemIndex, 0, systemMessage)
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to add tool definitions to messages:', error)
+    // 检查是否已经有系统消息，如果没有则添加
+    const hasSystemMessage = messages.some(msg => msg.role === 'system')
+    if (!hasSystemMessage) {
+      messages.unshift(systemMessage)
     }
   }
 

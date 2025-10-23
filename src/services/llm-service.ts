@@ -69,7 +69,6 @@ export class OpenAICompatibleLLMService implements LLMService {
 
       // Prepare request payload
       const requestPayload = {
-        model: 'gpt-4o', // Default model, can be made configurable
         messages: messages.map(msg => ({
           role: msg.role,
           content: msg.content,
@@ -81,7 +80,7 @@ export class OpenAICompatibleLLMService implements LLMService {
       }
 
       // Make API request
-      const response = await this.makeRequest('/chat/completions', requestPayload)
+      const response = await this.makeRequest('', requestPayload)
       
       // Parse and return response
       return this.parseResponse(response)
@@ -164,11 +163,17 @@ export class OpenAICompatibleLLMService implements LLMService {
       if (!response.ok) {
         let errorData = {}
         try {
-          errorData = await response.json()
-        } catch {
-          // If JSON parsing fails, try to get text
+          // Get response text first, then try to parse as JSON
           const errorText = await response.text()
-          errorData = { message: errorText }
+          try {
+            errorData = JSON.parse(errorText)
+          } catch {
+            // If JSON parsing fails, use the text as message
+            errorData = { message: errorText }
+          }
+        } catch {
+          // If we can't read the response at all
+          errorData = { message: 'Unable to read error response' }
         }
         
         throw new LLMServiceError(
@@ -266,14 +271,19 @@ export class OpenAICompatibleLLMService implements LLMService {
       }
 
       // Content is optional when tool calls are present
-      const content = message.content || (toolCalls ? '' : null)
+      const content = message.content !== undefined ? message.content : null
       
-      if (content === null) {
+      // If we have neither content nor tool calls, that's an error
+      // Note: Empty string is valid content, only null/undefined is invalid
+      if (content === null && !toolCalls) {
         throw new Error('Invalid response format: missing message content and no tool calls')
       }
+      
+      // Use the content as-is, or empty string if we have tool calls but no content
+      const finalContent = content !== null ? content : (toolCalls ? '' : '')
 
       const chatResponse: ChatResponse = {
-        content,
+        content: finalContent || '',
         usage: response.usage ? {
           promptTokens: response.usage.prompt_tokens || 0,
           completionTokens: response.usage.completion_tokens || 0

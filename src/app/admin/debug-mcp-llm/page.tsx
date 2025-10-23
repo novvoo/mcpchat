@@ -103,29 +103,40 @@ export default function DebugMCPLLMPage() {
 
   const presetTests = [
     {
-      name: 'N皇后问题',
+      name: 'N皇后问题 (应走MCP路径)',
       message: '解决8皇后问题',
-      testMode: 'full_flow'
+      testMode: 'smart_router',
+      expectedFlow: 'Smart Router → MCP Tool'
     },
     {
-      name: '数独求解',
+      name: 'N皇后问题解释 (应走LLM路径)',
+      message: '什么是N皇后问题？请详细解释',
+      testMode: 'smart_router',
+      expectedFlow: 'Smart Router → LLM'
+    },
+    {
+      name: '数独求解 (应走MCP路径)',
       message: '帮我解这个数独：[[5,3,0,0,7,0,0,0,0],[6,0,0,1,9,5,0,0,0],[0,9,8,0,0,0,0,6,0],[8,0,0,0,6,0,0,0,3],[4,0,0,8,0,3,0,0,1],[7,0,0,0,2,0,0,0,6],[0,6,0,0,0,0,2,8,0],[0,0,0,4,1,9,0,0,5],[0,0,0,0,8,0,0,7,9]]',
-      testMode: 'full_flow'
+      testMode: 'smart_router',
+      expectedFlow: 'Smart Router → MCP Tool'
     },
     {
-      name: '运行示例',
-      message: 'run example lp',
-      testMode: 'full_flow'
+      name: '运行示例 (应走MCP路径)',
+      message: 'run example basic',
+      testMode: 'smart_router',
+      expectedFlow: 'Smart Router → MCP Tool'
     },
     {
-      name: '工具测试',
-      message: '获取gurddy包的信息',
-      testMode: 'tools_only'
+      name: '一般对话 (应走LLM路径)',
+      message: '你好，今天天气怎么样？',
+      testMode: 'smart_router',
+      expectedFlow: 'Smart Router → LLM'
     },
     {
-      name: '混合查询',
-      message: '请帮我解决一个4皇后问题，然后解释一下算法原理',
-      testMode: 'full_flow'
+      name: '多场景测试',
+      message: '解决8皇后问题',
+      testMode: 'test_cases',
+      expectedFlow: '测试多种输入场景'
     }
   ]
 
@@ -188,7 +199,7 @@ export default function DebugMCPLLMPage() {
               >
                 <div className="font-medium">{preset.name}</div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  {preset.testMode}
+                  {preset.testMode} | {preset.expectedFlow}
                 </div>
                 <div className="text-xs bg-muted p-1 rounded mt-2 w-full text-left">
                   {preset.message.length > 40 
@@ -229,8 +240,10 @@ export default function DebugMCPLLMPage() {
               onChange={(e) => setTestMode(e.target.value)}
               className="w-full mt-1 p-2 border rounded-md"
             >
+              <option value="smart_router">智能路由测试 (推荐)</option>
+              <option value="full_flow">完整流程测试</option>
+              <option value="test_cases">多场景测试</option>
               <option value="tools_only">仅工具测试</option>
-              <option value="full_flow">完整流程</option>
             </select>
           </div>
 
@@ -373,6 +386,23 @@ export default function DebugMCPLLMPage() {
                               <div className="flex items-center gap-2 text-sm">
                                 <Zap className="h-4 w-4" />
                                 处理方式: {step.data.source}
+                              </div>
+                            )}
+                            {step.data.flowDescription && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Activity className="h-4 w-4" />
+                                流程: {step.data.flowDescription}
+                              </div>
+                            )}
+                            {step.data.confidence !== undefined && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <CheckCircle className="h-4 w-4" />
+                                置信度: {(step.data.confidence * 100).toFixed(1)}%
+                              </div>
+                            )}
+                            {step.data.reasoning && (
+                              <div className="text-sm text-muted-foreground mt-2">
+                                <strong>推理:</strong> {step.data.reasoning}
                               </div>
                             )}
                           </div>

@@ -57,19 +57,25 @@ describe('OpenAICompatibleLLMService', () => {
         }
       }
 
+      const responseData = {
+        choices: [{
+          message: {
+            content: mockResponse.content
+          }
+        }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 15
+        }
+      }
+
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          choices: [{
-            message: {
-              content: mockResponse.content
-            }
-          }],
-          usage: {
-            prompt_tokens: 10,
-            completion_tokens: 15
-          }
-        })
+        headers: {
+          get: (name: string) => name === 'content-type' ? 'application/json' : null
+        },
+        text: async () => JSON.stringify(responseData),
+        json: async () => responseData
       } as Response)
 
       const result = await service.sendMessage(mockMessages)
@@ -78,7 +84,7 @@ describe('OpenAICompatibleLLMService', () => {
       expect(result.usage?.promptTokens).toBe(10)
       expect(result.usage?.completionTokens).toBe(15)
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://test-api.com/v1/chat/completions',
+        'https://test-api.com/v1',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -91,22 +97,28 @@ describe('OpenAICompatibleLLMService', () => {
     })
 
     it('handles tool calls in response', async () => {
+      const responseData = {
+        choices: [{
+          message: {
+            content: 'I will execute a tool for you.',
+            tool_calls: [{
+              id: 'call_123',
+              function: {
+                name: 'test_tool',
+                arguments: '{"param": "value"}'
+              }
+            }]
+          }
+        }]
+      }
+
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          choices: [{
-            message: {
-              content: 'I will execute a tool for you.',
-              tool_calls: [{
-                id: 'call_123',
-                function: {
-                  name: 'test_tool',
-                  arguments: '{"param": "value"}'
-                }
-              }]
-            }
-          }]
-        })
+        headers: {
+          get: (name: string) => name === 'content-type' ? 'application/json' : null
+        },
+        text: async () => JSON.stringify(responseData),
+        json: async () => responseData
       } as Response)
 
       const result = await service.sendMessage(mockMessages)
@@ -115,6 +127,30 @@ describe('OpenAICompatibleLLMService', () => {
       expect(result.toolCalls).toHaveLength(1)
       expect(result.toolCalls![0].name).toBe('test_tool')
       expect(result.toolCalls![0].parameters).toEqual({ param: 'value' })
+    })
+
+    it('handles empty content in response', async () => {
+      const responseData = {
+        choices: [{
+          message: {
+            content: ''
+          }
+        }]
+      }
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: {
+          get: (name: string) => name === 'content-type' ? 'application/json' : null
+        },
+        text: async () => JSON.stringify(responseData),
+        json: async () => responseData
+      } as Response)
+
+      const result = await service.sendMessage(mockMessages)
+
+      expect(result.content).toBe('')
+      expect(result.toolCalls).toBeUndefined()
     })
 
     it('validates messages before sending', async () => {
@@ -146,6 +182,10 @@ describe('OpenAICompatibleLLMService', () => {
         ok: false,
         status: 401,
         statusText: 'Unauthorized',
+        headers: {
+          get: (name: string) => name === 'content-type' ? 'application/json' : null
+        },
+        text: async () => JSON.stringify({ error: 'Invalid API key' }),
         json: async () => ({ error: 'Invalid API key' })
       } as Response)
 
@@ -261,13 +301,19 @@ describe('OpenAICompatibleLLMService', () => {
 
   describe('testConnection', () => {
     it('returns true for successful connection', async () => {
+      const responseData = {
+        choices: [{
+          message: { content: 'Hello' }
+        }]
+      }
+
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          choices: [{
-            message: { content: 'Hello' }
-          }]
-        })
+        headers: {
+          get: (name: string) => name === 'content-type' ? 'application/json' : null
+        },
+        text: async () => JSON.stringify(responseData),
+        json: async () => responseData
       } as Response)
 
       const result = await service.testConnection()

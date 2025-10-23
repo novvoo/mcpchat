@@ -211,7 +211,10 @@ export class MCPInitializer {
     try {
       const intentRecognizer = getMCPIntentRecognizer()
       
-      // 更新可用工具列表（这会触发关键词映射的更新）
+      // 初始化意图识别器（这会触发元数据服务的初始化）
+      await intentRecognizer.initialize()
+      
+      // 更新可用工具列表
       await intentRecognizer.updateAvailableTools()
       
       // 获取统计信息

@@ -2,18 +2,17 @@
 
 import { Tool } from '@/types'
 import { getMCPToolsService } from './mcp-tools'
+import { getToolMetadataService } from './tool-metadata-service'
 
 /**
  * MCP意图识别器 - 分析用户输入并匹配合适的MCP工具
  */
 export class MCPIntentRecognizer {
   private static instance: MCPIntentRecognizer
-  private toolKeywords: Map<string, string[]> = new Map()
   private availableTools: Tool[] = []
+  private initialized = false
 
-  private constructor() {
-    this.initializeKeywords()
-  }
+  private constructor() {}
 
   public static getInstance(): MCPIntentRecognizer {
     if (!MCPIntentRecognizer.instance) {
@@ -23,28 +22,24 @@ export class MCPIntentRecognizer {
   }
 
   /**
-   * 初始化工具关键词映射
+   * 初始化服务
    */
-  private initializeKeywords(): void {
-    // 为不同的工具定义关键词
-    this.toolKeywords.set('solve_n_queens', [
-      'n queens', 'n-queens', 'queens problem', '皇后问题', '八皇后', 'n皇后',
-      'chess queens', 'queens puzzle', 'queens solution'
-    ])
+  async initialize(): Promise<void> {
+    if (this.initialized) return
 
-    this.toolKeywords.set('solve_sudoku', [
-      'sudoku', '数独', 'sudoku puzzle', 'sudoku solver', '数独游戏',
-      'solve sudoku', '解数独', 'sudoku solution'
-    ])
-
-    this.toolKeywords.set('run_example', [
-      'run example', '运行示例', 'example', '示例', 'demo', '演示',
-      'test run', '测试运行', 'execute example'
-    ])
-
-    this.toolKeywords.set('echo', [
-      'echo', '回显', 'repeat', '重复', 'say back', '说回来'
-    ])
+    try {
+      const metadataService = getToolMetadataService()
+      await metadataService.initialize()
+      
+      // 刷新工具元数据
+      await metadataService.refreshToolMetadata()
+      
+      this.initialized = true
+      console.log('MCP Intent Recognizer initialized with dynamic metadata')
+    } catch (error) {
+      console.error('Failed to initialize MCP Intent Recognizer:', error)
+      // 继续使用基本功能，不抛出错误
+    }
   }
 
   /**
@@ -65,220 +60,177 @@ export class MCPIntentRecognizer {
    * 识别用户输入的意图并匹配MCP工具
    */
   async recognizeIntent(userInput: string): Promise<{
-    shouldUseMCP: boolean
-    matchedTool?: string
+    needsMCP: boolean
+    suggestedTool?: string
     confidence: number
-    extractedParams?: Record<string, any>
+    parameters?: Record<string, any>
     reasoning?: string
   }> {
+    // 确保服务已初始化
+    await this.initialize()
+    
     // 确保工具列表是最新的
     await this.updateAvailableTools()
 
     if (this.availableTools.length === 0) {
       return {
-        shouldUseMCP: false,
+        needsMCP: false,
         confidence: 0,
         reasoning: 'No MCP tools available'
       }
     }
 
     const input = userInput.toLowerCase().trim()
-    let bestMatch = {
-      tool: '',
-      confidence: 0,
-      params: {} as Record<string, any>,
-      reasoning: ''
-    }
-
-    // 检查每个可用工具
-    for (const tool of this.availableTools) {
-      const match = this.matchToolToInput(tool.name, input, userInput)
-      if (match.confidence > bestMatch.confidence) {
-        bestMatch = {
-          tool: tool.name,
-          confidence: match.confidence,
-          params: match.params,
-          reasoning: match.reasoning
-        }
+    
+    // 首先检查是否是信息查询类请求
+    if (this.isInformationQuery(input)) {
+      return {
+        needsMCP: false,
+        confidence: 0,
+        reasoning: 'Detected information query, should use LLM instead of tools'
       }
     }
+
+    // 使用动态元数据服务获取工具建议
+    const metadataService = getToolMetadataService()
+    const suggestions = await metadataService.getToolSuggestions(userInput)
+
+    if (suggestions.length === 0) {
+      return {
+        needsMCP: false,
+        confidence: 0,
+        reasoning: 'No matching tools found in metadata'
+      }
+    }
+
+    // 选择最佳匹配
+    const bestSuggestion = suggestions[0]
+    
+    // 提取参数
+    const parameters = await this.extractParameters(bestSuggestion.toolName, userInput)
 
     // 设置置信度阈值
-    const CONFIDENCE_THRESHOLD = 0.6
+    const CONFIDENCE_THRESHOLD = 0.3 // 降低阈值，因为我们现在有更智能的匹配
 
     return {
-      shouldUseMCP: bestMatch.confidence >= CONFIDENCE_THRESHOLD,
-      matchedTool: bestMatch.confidence >= CONFIDENCE_THRESHOLD ? bestMatch.tool : undefined,
-      confidence: bestMatch.confidence,
-      extractedParams: bestMatch.params,
-      reasoning: bestMatch.reasoning
+      needsMCP: bestSuggestion.confidence >= CONFIDENCE_THRESHOLD,
+      suggestedTool: bestSuggestion.confidence >= CONFIDENCE_THRESHOLD ? bestSuggestion.toolName : undefined,
+      confidence: bestSuggestion.confidence,
+      parameters,
+      reasoning: `Dynamic metadata matched tool ${bestSuggestion.toolName} with keywords: ${bestSuggestion.keywords.join(', ')}`
     }
   }
 
   /**
-   * 匹配特定工具到用户输入
+   * 使用动态元数据提取参数
    */
-  private matchToolToInput(toolName: string, input: string, originalInput: string): {
-    confidence: number
-    params: Record<string, any>
-    reasoning: string
-  } {
-    const keywords = this.toolKeywords.get(toolName) || []
-    let confidence = 0
-    let params: Record<string, any> = {}
-    let reasoning = ''
+  private async extractParameters(toolName: string, userInput: string): Promise<Record<string, any>> {
+    const metadataService = getToolMetadataService()
+    const params: Record<string, any> = {}
 
-    // 关键词匹配
-    const keywordMatches = keywords.filter(keyword => 
-      input.includes(keyword.toLowerCase())
-    )
-
-    if (keywordMatches.length > 0) {
-      confidence += 0.7 * (keywordMatches.length / keywords.length)
-      reasoning += `Matched keywords: ${keywordMatches.join(', ')}. `
-    }
-
-    // 特定工具的参数提取和额外匹配逻辑
-    switch (toolName) {
-      case 'solve_n_queens':
-        confidence += this.matchNQueens(input, params)
-        break
-      
-      case 'solve_sudoku':
-        confidence += this.matchSudoku(input, originalInput, params)
-        break
-      
-      case 'run_example':
-        confidence += this.matchExample(input, params)
-        break
-      
-      case 'echo':
-        confidence += this.matchEcho(input, originalInput, params)
-        break
-    }
-
-    return { confidence: Math.min(confidence, 1.0), params, reasoning }
-  }
-
-  /**
-   * N皇后问题匹配逻辑
-   */
-  private matchNQueens(input: string, params: Record<string, any>): number {
-    let confidence = 0
-
-    // 查找数字
-    const numberMatch = input.match(/(\d+)\s*(?:queens?|皇后)/i) || 
-                       input.match(/(\d+)\s*x\s*\d+/) ||
-                       input.match(/size\s*[=:]\s*(\d+)/i) ||
-                       input.match(/n\s*[=:]\s*(\d+)/i)
-
-    if (numberMatch) {
-      const n = parseInt(numberMatch[1])
-      if (n >= 1 && n <= 20) { // 合理的范围
-        params.n = n
-        confidence += 0.3
+    try {
+      // 根据工具类型提取参数
+      if (toolName === 'solve_n_queens') {
+        params.n = this.extractNumberParameter(userInput, 'queens', 8)
+      } else if (toolName === 'solve_sudoku') {
+        params.puzzle = this.extractSudokuGrid(userInput)
+      } else if (toolName === 'run_example') {
+        // 使用动态参数映射
+        const exampleType = await this.extractExampleType(userInput, metadataService)
+        params.example_type = exampleType
+      } else if (toolName === 'echo') {
+        params.message = this.extractEchoMessage(userInput)
       }
-    } else {
-      // 默认8皇后
-      params.n = 8
-      confidence += 0.1
-    }
 
-    // 检查问题相关词汇 - 增加置信度权重
-    const problemWords = ['solve', 'solution', 'problem', '解决', '求解', '问题']
-    if (problemWords.some(word => input.includes(word))) {
-      confidence += 0.3 // 从0.2提升到0.3
+      console.log(`Extracted parameters for ${toolName}:`, params)
+      return params
+    } catch (error) {
+      console.error(`Error extracting parameters for ${toolName}:`, error)
+      return {}
     }
-
-    return confidence
   }
 
   /**
-   * 数独匹配逻辑
+   * 提取数字参数
    */
-  private matchSudoku(input: string, originalInput: string, params: Record<string, any>): number {
-    let confidence = 0
+  private extractNumberParameter(input: string, context: string, defaultValue: number): number {
+    const numberMatch = input.match(new RegExp(`(\\d+)\\s*(?:${context}|皇后)`, 'i'))
+    return numberMatch ? parseInt(numberMatch[1]) : defaultValue
+  }
 
-    // 检查是否包含数独网格
+  /**
+   * 提取数独网格
+   */
+  private extractSudokuGrid(input: string): number[][] {
     const gridPattern = /\[[\[\d\s,\]]+\]/
-    if (gridPattern.test(originalInput)) {
+    if (gridPattern.test(input)) {
       try {
-        const gridMatch = originalInput.match(gridPattern)
+        const gridMatch = input.match(gridPattern)
         if (gridMatch) {
           const grid = JSON.parse(gridMatch[0])
           if (Array.isArray(grid) && grid.length === 9) {
-            params.puzzle = grid
-            confidence += 0.4
+            return grid
           }
         }
       } catch (error) {
-        // 解析失败，使用默认数独
+        console.warn('Failed to parse sudoku grid:', error)
       }
     }
 
-    // 如果没有提供网格，使用示例数独
-    if (!params.puzzle) {
-      params.puzzle = [
-        [5,3,0,0,7,0,0,0,0],
-        [6,0,0,1,9,5,0,0,0],
-        [0,9,8,0,0,0,0,6,0],
-        [8,0,0,0,6,0,0,0,3],
-        [4,0,0,8,0,3,0,0,1],
-        [7,0,0,0,2,0,0,0,6],
-        [0,6,0,0,0,0,2,8,0],
-        [0,0,0,4,1,9,0,0,5],
-        [0,0,0,0,8,0,0,7,9]
-      ]
-      confidence += 0.1
-    }
-
-    return confidence
+    // 返回默认数独
+    return [
+      [5,3,0,0,7,0,0,0,0],
+      [6,0,0,1,9,5,0,0,0],
+      [0,9,8,0,0,0,0,6,0],
+      [8,0,0,0,6,0,0,0,3],
+      [4,0,0,8,0,3,0,0,1],
+      [7,0,0,0,2,0,0,0,6],
+      [0,6,0,0,0,0,2,8,0],
+      [0,0,0,4,1,9,0,0,5],
+      [0,0,0,0,8,0,0,7,9]
+    ]
   }
 
   /**
-   * 示例运行匹配逻辑
+   * 使用动态元数据提取示例类型
    */
-  private matchExample(input: string, params: Record<string, any>): number {
-    let confidence = 0
-
-    // 提取示例类型
-    const typeMatch = input.match(/(?:type|类型)[=:\s]+([a-zA-Z_]+)/i) ||
-                     input.match(/run\s+([a-zA-Z_]+)\s+example/i) ||
-                     input.match(/([a-zA-Z_]+)\s+example/i)
+  private async extractExampleType(input: string, metadataService: any): Promise<string> {
+    // 首先尝试从输入中提取类型
+    const typeMatch = input.match(/run\s+example\s+([a-zA-Z_]+)/i) ||
+                     input.match(/example\s+([a-zA-Z_]+)/i) ||
+                     input.match(/(?:type|类型)[=:\s]+([a-zA-Z_]+)/i) ||
+                     input.match(/run\s+([a-zA-Z_]+)\s+example/i)
 
     if (typeMatch) {
-      params.example_type = typeMatch[1]
-      confidence += 0.3
-    } else {
-      params.example_type = 'basic'
-      confidence += 0.1
+      const rawType = typeMatch[1].toLowerCase()
+      
+      // 使用动态参数映射
+      const mappedType = await metadataService.getParameterMapping('run_example', rawType)
+      if (mappedType) {
+        console.log(`Mapped "${rawType}" to "${mappedType}" using dynamic metadata`)
+        return mappedType
+      }
+      
+      // 如果没有映射，返回原始类型
+      return rawType
     }
 
-    return confidence
+    // 默认返回 lp
+    return 'lp'
   }
 
   /**
-   * 回显匹配逻辑
+   * 提取回显消息
    */
-  private matchEcho(input: string, originalInput: string, params: Record<string, any>): number {
-    let confidence = 0
+  private extractEchoMessage(input: string): string {
+    const echoMatch = input.match(/echo[:\s]+(.+)/i) ||
+                     input.match(/say[:\s]+(.+)/i) ||
+                     input.match(/repeat[:\s]+(.+)/i)
 
-    // 提取要回显的消息
-    const echoMatch = originalInput.match(/echo[:\s]+(.+)/i) ||
-                     originalInput.match(/say[:\s]+(.+)/i) ||
-                     originalInput.match(/repeat[:\s]+(.+)/i)
-
-    if (echoMatch) {
-      params.message = echoMatch[1].trim()
-      confidence += 0.4
-    } else {
-      // 如果没有明确的echo指令，但包含echo关键词，使用整个输入
-      params.message = originalInput
-      confidence += 0.2
-    }
-
-    return confidence
+    return echoMatch ? echoMatch[1].trim() : input
   }
+
+
 
   /**
    * 获取工具的使用建议
@@ -291,22 +243,16 @@ export class MCPIntentRecognizer {
   }>> {
     await this.updateAvailableTools()
     
-    const suggestions = []
-    const input = userInput.toLowerCase()
-
-    for (const tool of this.availableTools) {
-      const match = this.matchToolToInput(tool.name, input, userInput)
-      if (match.confidence > 0.3) {
-        suggestions.push({
-          toolName: tool.name,
-          description: tool.description,
-          confidence: match.confidence,
-          suggestedParams: match.params
-        })
-      }
-    }
-
-    return suggestions.sort((a, b) => b.confidence - a.confidence)
+    // 使用动态元数据服务获取建议
+    const metadataService = getToolMetadataService()
+    const suggestions = await metadataService.getToolSuggestions(userInput)
+    
+    return suggestions.map(suggestion => ({
+      toolName: suggestion.toolName,
+      description: this.availableTools.find(t => t.name === suggestion.toolName)?.description || '',
+      confidence: suggestion.confidence,
+      suggestedParams: {}
+    }))
   }
 
   /**
@@ -327,6 +273,36 @@ export class MCPIntentRecognizer {
   }
 
   /**
+   * 检查是否是信息查询类请求
+   */
+  private isInformationQuery(input: string): boolean {
+    // 信息查询的关键词
+    const queryWords = [
+      '什么是', '什么叫', 'what is', 'what are',
+      '如何', '怎么', '怎样', 'how to', 'how do',
+      '为什么', 'why', '原因',
+      '解释', '说明', 'explain', 'describe',
+      '介绍', 'introduce', 'tell me about',
+      '定义', 'definition', 'meaning',
+      '规则', 'rules', '原理', 'principle'
+    ]
+
+    // 疑问词
+    const questionWords = ['？', '?', '吗', '呢']
+
+    // 检查是否包含查询关键词
+    const hasQueryWords = queryWords.some(word => input.includes(word))
+    
+    // 检查是否包含疑问词
+    const hasQuestionWords = questionWords.some(word => input.includes(word))
+
+    // 检查是否以疑问词开头
+    const startsWithQuestion = /^(什么|如何|怎么|怎样|为什么|why|what|how|where|when|who)/i.test(input)
+
+    return hasQueryWords || hasQuestionWords || startsWithQuestion
+  }
+
+  /**
    * 获取统计信息
    */
   getStats(): {
@@ -336,7 +312,7 @@ export class MCPIntentRecognizer {
   } {
     return {
       totalTools: this.availableTools.length,
-      keywordMappings: this.toolKeywords.size,
+      keywordMappings: 0, // 现在使用动态元数据，不再有固定的关键词映射
       lastUpdate: new Date()
     }
   }

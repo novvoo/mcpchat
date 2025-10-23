@@ -9,7 +9,7 @@ export class EmbeddingService {
   private static instance: EmbeddingService
   private baseUrl: string = ''
   private headers: Record<string, string> = {}
-  private model: string = 'text-embedding-3-small'
+
 
   private constructor() {}
 
@@ -34,7 +34,7 @@ export class EmbeddingService {
       this.baseUrl = llmConfig.url.replace('/v1', '') + '/v1'
       this.headers = { ...llmConfig.headers }
       
-      console.log(`Embedding service initialized with model: ${this.model}`)
+      console.log('Embedding service initialized')
     } catch (error) {
       console.error('Failed to initialize embedding service:', error)
     }
@@ -49,7 +49,6 @@ export class EmbeddingService {
         method: 'POST',
         headers: this.headers,
         body: JSON.stringify({
-          model: this.model,
           input: text
         })
       })
@@ -80,7 +79,6 @@ export class EmbeddingService {
         method: 'POST',
         headers: this.headers,
         body: JSON.stringify({
-          model: this.model,
           input: texts
         })
       })

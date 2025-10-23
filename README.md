@@ -18,7 +18,7 @@ An intelligent chat client that integrates MCP (Model Context Protocol) tools wi
 - **Smart Router**: Intelligently routes queries to appropriate tools using vector search
 - **MCP Manager**: Manages MCP server connections and tool discovery
 - **Tool Vector Store**: Stores and searches tool embeddings using pgvector
-- **Embedding Service**: Generates embeddings via LLM API (text-embedding-3-small)
+- **Embedding Service**: Generates embeddings via LLM API
 - **Database Service**: PostgreSQL connection management with pgvector support
 
 ### Technology Stack

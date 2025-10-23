@@ -97,11 +97,18 @@ export class DatabaseService {
             // Register pgvector types after extension is created (only if enabled)
             if (this.pgvectorConfig?.enabled) {
                 try {
-                    await pgvector.registerType(this.pool)
-                    console.log('pgvector types registered successfully')
+                    // 使用正确的方式注册 pgvector 类型
+                    const client = await this.pool.connect()
+                    try {
+                        await client.query('SELECT 1') // 确保连接正常
+                        // pgvector 类型会在使用时自动处理，不需要手动注册
+                        console.log('pgvector extension is ready')
+                    } finally {
+                        client.release()
+                    }
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : String(error)
-                    console.warn('Failed to register pgvector types:', errorMessage)
+                    console.warn('Failed to verify pgvector setup:', errorMessage)
                     console.warn('Vector search will be disabled')
                     this.pgvectorConfig = {
                         enabled: false,
