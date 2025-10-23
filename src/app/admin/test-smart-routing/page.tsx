@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import AdminNavigation from '@/components/AdminNavigation'
 import { Loader2, CheckCircle, XCircle, Brain, Cog, MessageSquare, RefreshCw } from 'lucide-react'
 
 interface SmartRoutingStatus {
@@ -199,6 +200,8 @@ export default function TestSmartRoutingPage() {
 
     return (
         <div className="container mx-auto p-6 space-y-6">
+            <AdminNavigation title="智能路由测试" />
+            
             <div className="text-center space-y-2">
                 <h1 className="text-3xl font-bold">MCP智能路由测试</h1>
                 <p className="text-muted-foreground">

@@ -16,9 +16,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     
     const variants = {
       primary: 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 active:scale-95',
-      secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200',
-      outline: 'border border-gray-300 bg-white hover:bg-gray-50 hover:text-gray-900',
-      ghost: 'hover:bg-gray-100 hover:text-gray-900',
+      secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+      outline: 'border border-border bg-background hover:bg-accent hover:text-accent-foreground',
+      ghost: 'hover:bg-accent hover:text-accent-foreground',
       destructive: 'bg-red-600 text-white hover:bg-red-700',
     }
     
@@ -54,4 +54,3 @@ Button.displayName = 'Button'
 
 export { Button }
 export type { ButtonProps }
-export default Button

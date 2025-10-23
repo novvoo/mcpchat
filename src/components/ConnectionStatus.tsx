@@ -171,9 +171,9 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
       case 'offline':
         return 'text-red-600 bg-red-50 border-red-200'
       case 'checking':
-        return 'text-gray-600 bg-gray-50 border-gray-200'
+        return 'text-muted-foreground bg-muted border-border'
       default:
-        return 'text-gray-600 bg-gray-50 border-gray-200'
+        return 'text-muted-foreground bg-muted border-border'
     }
   }
 

@@ -84,18 +84,32 @@ export class DatabaseService {
                 max: this.config.pool?.max || 10
             })
 
-            // Register pgvector types
-            await pgvector.registerType(this.pool)
-
-            // Test connection
+            // Test connection first
             const client = await this.pool.connect()
             await client.query('SELECT NOW()')
             client.release()
 
             console.log('Database connection established successfully')
 
-            // Initialize schema
+            // Initialize schema (this will create the pgvector extension)
             await this.initializeSchema()
+
+            // Register pgvector types after extension is created (only if enabled)
+            if (this.pgvectorConfig?.enabled) {
+                try {
+                    await pgvector.registerType(this.pool)
+                    console.log('pgvector types registered successfully')
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error)
+                    console.warn('Failed to register pgvector types:', errorMessage)
+                    console.warn('Vector search will be disabled')
+                    this.pgvectorConfig = {
+                        enabled: false,
+                        similarityThreshold: this.pgvectorConfig?.similarityThreshold ?? 0.7,
+                        maxResults: this.pgvectorConfig?.maxResults ?? 5
+                    }
+                }
+            }
         } catch (error) {
             console.error('Failed to initialize database:', error)
             this.pool = null
@@ -161,8 +175,20 @@ export class DatabaseService {
 
         const client = await this.pool.connect()
         try {
+            // Check if pgvector extension is available
+            const extensionCheck = await client.query(`
+                SELECT 1 FROM pg_available_extensions WHERE name = 'vector'
+            `)
+
+            if (extensionCheck.rows.length === 0) {
+                console.warn('pgvector extension is not available in this PostgreSQL installation')
+                console.warn('Vector search will be disabled. To enable it, install pgvector extension.')
+                return
+            }
+
             // Enable pgvector extension
             await client.query('CREATE EXTENSION IF NOT EXISTS vector')
+            console.log('pgvector extension enabled successfully')
 
             // Create tools table with vector embeddings
             // Note: vector dimension will be determined by the first embedding inserted
@@ -197,6 +223,17 @@ export class DatabaseService {
             console.log('Database schema initialized successfully')
         } catch (error) {
             console.error('Failed to initialize schema:', error)
+            // If it's a pgvector-related error, disable vector search gracefully
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            if (errorMessage.includes('vector') || errorMessage.includes('extension')) {
+                console.warn('pgvector extension could not be enabled. Vector search will be disabled.')
+                this.pgvectorConfig = {
+                    enabled: false,
+                    similarityThreshold: this.pgvectorConfig?.similarityThreshold ?? 0.7,
+                    maxResults: this.pgvectorConfig?.maxResults ?? 5
+                }
+                return
+            }
             throw error
         } finally {
             client.release()

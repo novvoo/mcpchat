@@ -33,20 +33,30 @@ export function ThemeProvider({
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(defaultTheme)
   const [actualTheme, setActualTheme] = useState<'light' | 'dark'>('light')
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
+    
     // Load theme from localStorage
     const stored = localStorage.getItem(storageKey) as Theme
     if (stored) {
       setTheme(stored)
     }
+    
+    // Set initial actual theme based on current DOM state
+    const root = document.documentElement
+    if (root.classList.contains('dark')) {
+      setActualTheme('dark')
+    } else {
+      setActualTheme('light')
+    }
   }, [storageKey])
 
   useEffect(() => {
-    const root = window.document.documentElement
+    if (!mounted) return
 
-    // Remove previous theme classes
-    root.classList.remove('light', 'dark')
+    const root = window.document.documentElement
 
     let resolvedTheme: 'light' | 'dark'
 
@@ -58,14 +68,22 @@ export function ThemeProvider({
       resolvedTheme = theme
     }
 
-    root.classList.add(resolvedTheme)
+    // Only update if the resolved theme is different from current
+    const currentTheme = root.classList.contains('dark') ? 'dark' : 'light'
+    if (currentTheme !== resolvedTheme) {
+      root.classList.remove('light', 'dark')
+      root.classList.add(resolvedTheme)
+    }
+
     setActualTheme(resolvedTheme)
 
     // Store theme preference
     localStorage.setItem(storageKey, theme)
-  }, [theme, storageKey])
+  }, [theme, storageKey, mounted])
 
   useEffect(() => {
+    if (!mounted) return
+
     // Listen for system theme changes
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
     
@@ -80,7 +98,7 @@ export function ThemeProvider({
 
     mediaQuery.addEventListener('change', handleChange)
     return () => mediaQuery.removeEventListener('change', handleChange)
-  }, [theme])
+  }, [theme, mounted])
 
   const value = {
     theme,

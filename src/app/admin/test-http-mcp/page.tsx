@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import AdminNavigation from '@/components/AdminNavigation'
 import { Loader2, CheckCircle, XCircle, Play, RefreshCw } from 'lucide-react'
 
 interface MCPServerStatus {
@@ -178,6 +179,8 @@ export default function TestHttpMCPPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <AdminNavigation title="HTTP MCP 测试" />
+      
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold">HTTP MCP 测试</h1>
         <p className="text-muted-foreground">

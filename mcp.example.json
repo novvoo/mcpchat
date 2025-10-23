@@ -30,7 +30,12 @@
       "name": "gurddy-http",
       "transport": "http",
       "url": "http://localhost:8080/mcp",
-      "env": {},
+      "env": {
+        "header" : [
+          "Content-Type: application/json",
+          "Accept: text/event-stream"
+        ]
+      },
       "disabled": false,
       "timeout": 30000,
       "retryAttempts": 3,

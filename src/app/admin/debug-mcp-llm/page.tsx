@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import AdminNavigation from '@/components/AdminNavigation'
 // Simple inline components
 const Switch = ({ checked, onCheckedChange, id }: { checked: boolean, onCheckedChange: (checked: boolean) => void, id?: string }) => (
   <button
@@ -159,6 +160,8 @@ export default function DebugMCPLLMPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <AdminNavigation title="MCP-LLM 交互调试" />
+      
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold">MCP-LLM 交互调试</h1>
         <p className="text-muted-foreground">

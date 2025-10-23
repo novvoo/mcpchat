@@ -79,28 +79,62 @@ export class MCPServerManager {
       throw new Error(`HTTP URL is required for server ${serverName}`)
     }
 
-    console.log(`Initializing HTTP MCP server ${serverName} at ${serverInfo.config.url}`)
+    const maxRetries = serverInfo.config.retryAttempts || 3
+    const retryDelay = serverInfo.config.retryDelay || 1000
 
+    console.log(`Initializing HTTP MCP server ${serverName} at ${serverInfo.config.url} (max retries: ${maxRetries})`)
+
+    let lastError: Error | null = null
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Attempt ${attempt}/${maxRetries} for server ${serverName}`)
+        await this.attemptHttpServerInitialization(serverInfo, serverName)
+        console.log(`HTTP MCP server ${serverName} initialized successfully on attempt ${attempt}`)
+        return
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error')
+        console.warn(`Attempt ${attempt}/${maxRetries} failed for server ${serverName}:`, lastError.message)
+        
+        if (attempt < maxRetries) {
+          console.log(`Waiting ${retryDelay}ms before retry...`)
+          await new Promise(resolve => setTimeout(resolve, retryDelay))
+        }
+      }
+    }
+
+    // All attempts failed
+    const errorMessage = lastError?.message || 'Unknown error'
+    console.error(`Failed to initialize HTTP MCP server ${serverName} after ${maxRetries} attempts:`, errorMessage)
+    throw new Error(`Failed to initialize HTTP MCP server ${serverName} at ${serverInfo.config.url}: ${errorMessage}`)
+  }
+
+  private async attemptHttpServerInitialization(serverInfo: any, serverName: string): Promise<void> {
     try {
       // Create HTTP client for MCP JSON-RPC communication
       serverInfo.httpClient = {
         url: serverInfo.config.url,
-        timeout: serverInfo.config.timeout || 30000,
+        timeout: serverInfo.config.timeout || 60000,
         requestId: 1
       }
 
       // Test basic connectivity first
-      console.log(`Testing connectivity to ${serverInfo.config.url}`)
+      const connectTimeout = serverInfo.config.timeout || 60000
+      console.log(`Testing connectivity to ${serverInfo.config.url} with timeout ${connectTimeout}ms`)
+      
       const testResponse = await fetch(serverInfo.config.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'User-Agent': 'MCPChat/1.0.0'
+        },
         body: JSON.stringify({
           jsonrpc: '2.0',
           id: 0,
           method: 'ping',
           params: {}
         }),
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(connectTimeout)
       })
 
       console.log(`Connectivity test response: ${testResponse.status} ${testResponse.statusText}`)
@@ -130,7 +164,7 @@ export class MCPServerManager {
         error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined
       })
-      throw new Error(`Failed to initialize HTTP MCP server ${serverName} at ${serverInfo.config.url}: ${errorMessage}`)
+      throw error // Re-throw for retry logic
     }
   }
 

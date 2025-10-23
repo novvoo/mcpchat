@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import AdminNavigation from '@/components/AdminNavigation'
 import { Loader2, Play, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
 
 interface DebugResult {
@@ -55,6 +56,8 @@ export default function DebugMCPPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <AdminNavigation title="MCP 初始化调试" />
+      
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold">MCP 初始化调试</h1>
         <p className="text-muted-foreground">

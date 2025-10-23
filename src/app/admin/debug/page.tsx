@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import AdminNavigation from '@/components/AdminNavigation'
 import { 
   Cog, 
   MessageSquare, 
@@ -22,7 +23,7 @@ export default function DebugPage() {
     {
       title: 'MCP 初始化调试',
       description: '详细调试MCP服务器初始化过程，查看连接状态和错误信息',
-      href: '/debug-mcp',
+      href: '/admin/debug-mcp',
       icon: <Cog className="h-6 w-6" />,
       category: 'MCP',
       status: 'stable'
@@ -30,7 +31,7 @@ export default function DebugPage() {
     {
       title: 'LLM 服务调试',
       description: '测试LLM服务连接、响应时间和工具集成功能',
-      href: '/debug-llm',
+      href: '/admin/debug-llm',
       icon: <MessageSquare className="h-6 w-6" />,
       category: 'LLM',
       status: 'stable'
@@ -38,7 +39,7 @@ export default function DebugPage() {
     {
       title: 'MCP-LLM 交互调试',
       description: '调试MCP工具与LLM的完整交互流程，包含流量追踪',
-      href: '/debug-mcp-llm',
+      href: '/admin/debug-mcp-llm',
       icon: <Activity className="h-6 w-6" />,
       category: 'Integration',
       status: 'new'
@@ -46,7 +47,7 @@ export default function DebugPage() {
     {
       title: 'HTTP MCP 测试',
       description: '测试HTTP传输的MCP服务器连接和工具调用',
-      href: '/test-http-mcp',
+      href: '/admin/test-http-mcp',
       icon: <Network className="h-6 w-6" />,
       category: 'MCP',
       status: 'stable'
@@ -54,7 +55,7 @@ export default function DebugPage() {
     {
       title: 'MCP 连接测试',
       description: '直接测试HTTP MCP服务器的连接和通信协议',
-      href: '/test-mcp-connection',
+      href: '/admin/test-mcp-connection',
       icon: <TestTube className="h-6 w-6" />,
       category: 'MCP',
       status: 'stable'
@@ -62,7 +63,7 @@ export default function DebugPage() {
     {
       title: '智能路由测试',
       description: '测试完整的MCP工具智能识别和路由功能流程',
-      href: '/test-smart-routing',
+      href: '/admin/test-smart-routing',
       icon: <Zap className="h-6 w-6" />,
       category: 'Integration',
       status: 'stable'
@@ -87,6 +88,8 @@ export default function DebugPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <AdminNavigation title="调试工具中心" />
+      
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold flex items-center justify-center gap-2">
           <Bug className="h-8 w-8" />

@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, CheckCircle, XCircle, Play } from 'lucide-react'
+import AdminNavigation from '@/components/AdminNavigation'
+import { Loader2, CheckCircle, XCircle, Play, RefreshCw } from 'lucide-react'
 
 interface TestResult {
   success: boolean
@@ -17,12 +18,66 @@ interface TestResult {
   fullResponse?: any
 }
 
+interface MCPServer {
+  name: string
+  transport: string
+  url: string
+  disabled?: boolean
+  [key: string]: any
+}
+
+interface MCPConfig {
+  mcpServers: Record<string, MCPServer>
+}
+
 export default function TestMCPConnectionPage() {
-  const [url, setUrl] = useState('https://gurddy-mcp.fly.dev/mcp/http')
+  const [mcpConfig, setMcpConfig] = useState<MCPConfig | null>(null)
+  const [selectedServer, setSelectedServer] = useState<string>('')
+  const [url, setUrl] = useState('')
   const [method, setMethod] = useState('initialize')
   const [params, setParams] = useState('{}')
   const [loading, setLoading] = useState(false)
+  const [configLoading, setConfigLoading] = useState(true)
   const [result, setResult] = useState<TestResult | null>(null)
+
+  // 加载MCP配置
+  const loadMCPConfig = async () => {
+    setConfigLoading(true)
+    try {
+      const response = await fetch('/api/mcp-config')
+      if (response.ok) {
+        const config = await response.json()
+        setMcpConfig(config)
+
+        // 自动选择第一个可用的HTTP服务器
+        const httpServers = Object.entries(config.mcpServers).filter(
+          ([_, server]) => (server as MCPServer).transport === 'http' && !(server as MCPServer).disabled
+        )
+        if (httpServers.length > 0) {
+          const [serverName, server] = httpServers[0]
+          setSelectedServer(serverName)
+          setUrl((server as MCPServer).url)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load MCP config:', error)
+    } finally {
+      setConfigLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadMCPConfig()
+  }, [])
+
+  // 当选择的服务器改变时，更新URL
+  const handleServerChange = (serverName: string) => {
+    setSelectedServer(serverName)
+    if (mcpConfig && mcpConfig.mcpServers[serverName]) {
+      setUrl(mcpConfig.mcpServers[serverName].url)
+    }
+    setResult(null)
+  }
 
   const testConnection = async () => {
     setLoading(true)
@@ -58,27 +113,23 @@ export default function TestMCPConnectionPage() {
 
   const presetTests = [
     {
-      name: 'Initialize Gurddy MCP',
-      url: 'https://gurddy-mcp.fly.dev/mcp/http',
+      name: 'Initialize',
       method: 'initialize',
       params: '{}'
     },
     {
       name: 'List Tools',
-      url: 'https://gurddy-mcp.fly.dev/mcp/http',
       method: 'tools/list',
       params: '{}'
     },
     {
       name: 'Solve 4-Queens',
-      url: 'https://gurddy-mcp.fly.dev/mcp/http',
       method: 'tools/call',
       params: '{"name": "solve_n_queens", "arguments": {"n": 4}}'
     }
   ]
 
   const usePreset = (preset: typeof presetTests[0]) => {
-    setUrl(preset.url)
     setMethod(preset.method)
     setParams(preset.params)
     setResult(null)
@@ -86,12 +137,97 @@ export default function TestMCPConnectionPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <AdminNavigation title="MCP 连接测试" />
+      
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold">MCP 连接测试</h1>
         <p className="text-muted-foreground">
-          直接测试HTTP MCP服务器的连接和通信
+          从mcp.json配置文件读取服务器信息进行测试
         </p>
       </div>
+
+      {/* MCP服务器选择 */}
+      {configLoading ? (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin mr-2" />
+            <span>加载MCP配置中...</span>
+          </CardContent>
+        </Card>
+      ) : mcpConfig ? (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>MCP服务器配置</CardTitle>
+                <CardDescription>
+                  从mcp.json读取的服务器配置
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadMCPConfig}
+                disabled={configLoading}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                刷新配置
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">选择MCP服务器</label>
+              <select
+                value={selectedServer}
+                onChange={(e) => handleServerChange(e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md"
+              >
+                <option value="">请选择服务器</option>
+                {Object.entries(mcpConfig.mcpServers)
+                  .filter(([_, server]) => (server as MCPServer).transport === 'http')
+                  .map(([name, server]) => {
+                    const mcpServer = server as MCPServer
+                    return (
+                      <option key={name} value={name} disabled={mcpServer.disabled}>
+                        {mcpServer.name || name} {mcpServer.disabled ? '(已禁用)' : ''}
+                      </option>
+                    )
+                  })}
+              </select>
+            </div>
+
+            {selectedServer && mcpConfig.mcpServers[selectedServer] && (
+              <div className="bg-muted p-3 rounded-md border border-border">
+                <p className="text-sm font-medium mb-1">服务器信息:</p>
+                <p className="text-sm text-gray-600">
+                  名称: {mcpConfig.mcpServers[selectedServer].name || selectedServer}
+                </p>
+                <p className="text-sm text-gray-600">
+                  URL: {mcpConfig.mcpServers[selectedServer].url}
+                </p>
+                <p className="text-sm text-gray-600">
+                  传输方式: {mcpConfig.mcpServers[selectedServer].transport}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="text-center py-8">
+            <XCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <p className="text-lg font-medium mb-2">无法加载MCP配置</p>
+            <p className="text-muted-foreground mb-4">
+              请确保项目根目录存在mcp.json文件
+            </p>
+            <Button onClick={loadMCPConfig} variant="outline">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              重试加载
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 预设测试 */}
       <Card>
@@ -160,7 +296,7 @@ export default function TestMCPConnectionPage() {
 
           <Button
             onClick={testConnection}
-            disabled={loading || !url || !method}
+            disabled={loading || !url || !method || !selectedServer}
             className="w-full"
           >
             {loading ? (
@@ -193,7 +329,7 @@ export default function TestMCPConnectionPage() {
                   <CheckCircle className="h-4 w-4" />
                   <AlertDescription>连接成功！</AlertDescription>
                 </Alert>
-                
+
                 {result.result && (
                   <div>
                     <p className="text-sm font-medium mb-2">MCP响应结果:</p>

@@ -67,13 +67,44 @@ export const ChatEmptyState: React.FC<{
   ]
 
   return (
-    <EmptyState
-      title="Welcome to MCP Chat!"
-      subtitle="I can help you solve problems using powerful computational tools."
-      icon="🤖"
-      suggestions={suggestions}
-      onSuggestionClick={onSuggestionClick}
-    />
+    <div className="flex items-center justify-center h-full">
+      <div className="text-center max-w-sm sm:max-w-md mx-auto p-4 sm:p-6 animate-fade-in">
+        <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4">🤖</div>
+        <h3 className="text-base sm:text-lg font-medium text-foreground mb-2">Welcome to MCP Chat!</h3>
+        <p className="text-sm sm:text-base text-muted-foreground mb-4 sm:mb-6">I can help you solve problems using powerful computational tools.</p>
+        
+        {suggestions.length > 0 && (
+          <div className="space-y-2 mb-6">
+            <p className="text-xs sm:text-sm font-medium text-foreground mb-3">Try asking:</p>
+            <div className="space-y-2">
+              {suggestions.map((suggestion, index) => (
+                <button
+                  key={index}
+                  onClick={() => onSuggestionClick?.(suggestion)}
+                  className="block w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-primary bg-accent hover:bg-accent/80 rounded-lg transition-all duration-200 border border-border hover:border-primary/50 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Admin Panel Link */}
+        <div className="pt-4 border-t border-border">
+          <a
+            href="/admin"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs sm:text-sm text-muted-foreground hover:text-foreground bg-background hover:bg-accent rounded-lg transition-all duration-200 border border-border hover:border-primary/50 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            管理面板
+          </a>
+        </div>
+      </div>
+    </div>
   )
 }
 

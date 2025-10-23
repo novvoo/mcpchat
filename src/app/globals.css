@@ -17,6 +17,33 @@
   --input: #ffffff;
   --ring: #3b82f6;
   --radius: 0.5rem;
+  
+  /* Additional color variables */
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-900: #111827;
+  
+  --blue-50: #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+  
+  --red-50: #fef2f2;
+  --red-600: #dc2626;
+  --red-700: #b91c1c;
+  
+  --green-50: #f0fdf4;
+  --green-500: #22c55e;
+  
+  --yellow-50: #fefce8;
+  --yellow-100: #fef3c7;
+  
+  --orange-50: #fff7ed;
+  --orange-100: #ffedd5;
 }
 
 
@@ -24,7 +51,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0f172a;
-    --foreground: #f1f5f9;
+    --foreground: #f8fafc;
     --primary: #3b82f6;
     --primary-foreground: #ffffff;
     --secondary: #1e293b;
@@ -32,12 +59,34 @@
     --muted: #1e293b;
     --muted-foreground: #94a3b8;
     --accent: #1e293b;
-    --accent-foreground: #f1f5f9;
+    --accent-foreground: #f8fafc;
     --destructive: #ef4444;
     --destructive-foreground: #ffffff;
     --border: #334155;
     --input: #1e293b;
     --ring: #3b82f6;
+    
+    /* Dark mode color overrides */
+    --gray-50: #1e293b;
+    --gray-100: #334155;
+    --gray-200: #475569;
+    --gray-300: #64748b;
+    --gray-600: #cbd5e1;
+    --gray-700: #e2e8f0;
+    --gray-900: #f8fafc;
+    
+    --blue-50: #1e3a8a;
+    --blue-100: #1e40af;
+    
+    --red-50: #7f1d1d;
+    
+    --green-50: #14532d;
+    
+    --yellow-50: #713f12;
+    --yellow-100: #92400e;
+    
+    --orange-50: #9a3412;
+    --orange-100: #c2410c;
   }
 }
 
@@ -311,7 +360,7 @@ html {
 }
 
 .gradient-accent {
-  background: linear-gradient(135deg, var(--accent) 0%, #f1f5f9 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, #2ab 100%);
 }
 
 /* Text gradients */
@@ -320,6 +369,64 @@ html {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* Custom color utilities */
+.bg-gray-50 {
+  background-color: var(--gray-50);
+}
+
+.bg-gray-100 {
+  background-color: var(--gray-100);
+}
+
+.bg-gray-200 {
+  background-color: var(--gray-200);
+}
+
+.text-gray-600 {
+  color: var(--gray-600);
+}
+
+.text-gray-700 {
+  color: var(--gray-700);
+}
+
+.text-gray-900 {
+  color: var(--gray-900);
+}
+
+.border-gray-200 {
+  border-color: var(--gray-200);
+}
+
+.border-gray-300 {
+  border-color: var(--gray-300);
+}
+
+.hover\:bg-gray-50:hover {
+  background-color: var(--gray-50);
+}
+
+.hover\:bg-gray-100:hover {
+  background-color: var(--gray-100);
+}
+
+.hover\:bg-gray-200:hover {
+  background-color: var(--gray-200);
+}
+
+/* Alternative color options */
+.bg-accent-light {
+  background-color: var(--accent);
+}
+
+.bg-muted-light {
+  background-color: var(--muted);
+}
+
+.bg-secondary-light {
+  background-color: var(--secondary);
 }
 
 /* Loading skeleton */

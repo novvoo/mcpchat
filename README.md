@@ -187,6 +187,32 @@ Define MCP servers and their connection details. See [MCP documentation](https:/
 
 ## Development
 
+Run pgvector
+
+docker-compose up -d 
+```yaml
+#docker-compose.yaml 
+version: '3'
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: postgres
+    restart: always
+    environment:
+      TZ: Asia/Shanghai
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - pgdata:/var/lib/postgresql/data:rw
+volumes:
+  pgdata:
+    driver: local
+```
+
 Run tests:
 ```bash
 npm test
