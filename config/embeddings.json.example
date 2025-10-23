@@ -1,0 +1,11 @@
+{
+  "provider": "openai",
+  "model": "text-embedding-ada-002",
+  "dimensions": 1536,
+  "endpoint": "/embeddings",
+  "batchSize": 100,
+  "fallback": {
+    "enabled": true,
+    "type": "mock"
+  }
+}

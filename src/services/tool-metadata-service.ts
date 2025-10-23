@@ -262,14 +262,18 @@ export class ToolMetadataService {
             }
         })
 
-        // 添加特定领域的关键词
-        if (name.includes('queens')) {
+        // 添加特定领域的关键词 - 扩展版本
+        if (name.includes('queens') || name.includes('n_queens')) {
             keywords.add('皇后问题')
             keywords.add('n皇后')
             keywords.add('八皇后')
+            keywords.add('8皇后')
             keywords.add('queens problem')
             keywords.add('皇后')
             keywords.add('queen')
+            keywords.add('queens')
+            keywords.add('n queens')
+            keywords.add('solve_n_queens')
         }
 
         if (name.includes('sudoku')) {
@@ -288,12 +292,14 @@ export class ToolMetadataService {
             keywords.add('run example')
         }
 
-        // 添加动作关键词
+        // 添加动作关键词 - 扩展版本
         if (name.includes('solve')) {
             keywords.add('解决')
             keywords.add('求解')
             keywords.add('解')
             keywords.add('solve')
+            keywords.add('问题')
+            keywords.add('problem')
         }
 
         if (name.includes('run')) {
@@ -304,7 +310,75 @@ export class ToolMetadataService {
             keywords.add('execute')
         }
 
+        // 添加更多特定工具的关键词
+        const toolSpecificKeywords = this.getToolSpecificKeywords(name)
+        toolSpecificKeywords.forEach(keyword => keywords.add(keyword))
+
         return Array.from(keywords)
+    }
+
+    /**
+     * 获取工具特定的关键词
+     */
+    private getToolSpecificKeywords(toolName: string): string[] {
+        const specificMappings: Record<string, string[]> = {
+            'solve_n_queens': [
+                '皇后问题', '皇后', '8皇后', 'n皇后', '八皇后', 'queens', 'queen', 
+                'n queens', 'queens problem', 'solve_n_queens', 'solve', '解决', 
+                '求解', '解', 'problem', '问题'
+            ],
+            'solve_sudoku': [
+                '数独', 'sudoku', '解数独', 'solve sudoku', '数独游戏', 'puzzle'
+            ],
+            'run_example': [
+                '示例', '演示', 'demo', '例子', '运行示例', 'run example', 'example', 
+                '测试', 'test', '样例'
+            ],
+            'solve_graph_coloring': [
+                '图着色', '图染色', 'graph coloring', '着色问题', 'coloring', '图论'
+            ],
+            'solve_map_coloring': [
+                '地图着色', '地图染色', 'map coloring', '区域着色', '地图'
+            ],
+            'solve_lp': [
+                '线性规划', 'linear programming', 'lp', '优化', 'optimization'
+            ],
+            'solve_production_planning': [
+                '生产规划', '生产计划', 'production planning', '生产优化', '规划'
+            ],
+            'solve_minimax_game': [
+                '极小极大', 'minimax', '博弈', 'game', '游戏理论', 'game theory'
+            ],
+            'solve_minimax_decision': [
+                '极小极大决策', 'minimax decision', '决策', 'decision', '不确定性'
+            ],
+            'solve_24_point_game': [
+                '24点游戏', '24点', '24 point', '算24', '数字游戏'
+            ],
+            'solve_chicken_rabbit_problem': [
+                '鸡兔同笼', 'chicken rabbit', '鸡兔问题', '经典问题'
+            ],
+            'solve_scipy_portfolio_optimization': [
+                '投资组合优化', 'portfolio optimization', '投资组合', 'portfolio', '金融优化'
+            ],
+            'solve_scipy_statistical_fitting': [
+                '统计拟合', 'statistical fitting', '参数估计', '统计', 'statistical'
+            ],
+            'solve_scipy_facility_location': [
+                '设施选址', 'facility location', '选址问题', '设施布局', 'location'
+            ],
+            'info': [
+                '信息', '详情', 'info', 'information', '帮助', 'help'
+            ],
+            'install': [
+                '安装', 'install', '安装包', 'package', '部署', 'setup'
+            ],
+            'echo': [
+                '回显', '重复', 'echo', 'repeat', '输出', 'output'
+            ]
+        }
+
+        return specificMappings[toolName] || []
     }
 
     /**
@@ -426,10 +500,102 @@ export class ToolMetadataService {
                 await client.query(`
           INSERT INTO tool_keyword_mappings (tool_name, keyword, confidence, source)
           VALUES ($1, $2, $3, $4)
+          ON CONFLICT (tool_name, keyword) DO UPDATE SET
+            confidence = EXCLUDED.confidence,
+            source = EXCLUDED.source
         `, [toolName, keyword, 1.0, 'auto_extracted'])
+            }
+
+            console.log(`Updated ${keywords.length} keyword mappings for tool: ${toolName}`)
+        } catch (error) {
+            console.error(`Failed to update keyword mappings for ${toolName}:`, error)
+            throw error
+        } finally {
+            client.release()
+        }
+    }
+
+    /**
+     * 验证关键词映射是否存在，如果不存在则强制创建
+     */
+    async ensureKeywordMappingsExist(): Promise<void> {
+        console.log('验证关键词映射是否存在...')
+        
+        const dbService = getDatabaseService()
+        const client = await dbService.getClient()
+        if (!client) return
+
+        try {
+            // 检查是否有关键词映射
+            const result = await client.query('SELECT COUNT(*) as count FROM tool_keyword_mappings')
+            const mappingCount = parseInt(result.rows[0].count)
+
+            console.log(`当前关键词映射数量: ${mappingCount}`)
+
+            if (mappingCount === 0) {
+                console.log('没有关键词映射，强制创建...')
+                await this.forceCreateKeywordMappings()
+            } else {
+                // 检查特定工具的映射
+                const criticalTools = ['solve_n_queens', 'solve_sudoku', 'run_example']
+                for (const toolName of criticalTools) {
+                    const toolResult = await client.query(
+                        'SELECT COUNT(*) as count FROM tool_keyword_mappings WHERE tool_name = $1',
+                        [toolName]
+                    )
+                    const toolMappingCount = parseInt(toolResult.rows[0].count)
+                    
+                    if (toolMappingCount === 0) {
+                        console.log(`工具 ${toolName} 缺少关键词映射，创建中...`)
+                        await this.createKeywordMappingsForTool(toolName)
+                    }
+                }
             }
         } finally {
             client.release()
+        }
+    }
+
+    /**
+     * 强制创建关键词映射
+     */
+    private async forceCreateKeywordMappings(): Promise<void> {
+        try {
+            // 获取所有可用工具
+            const mcpToolsService = getMCPToolsService()
+            const tools = await mcpToolsService.getAvailableTools()
+
+            console.log(`为 ${tools.length} 个工具创建关键词映射...`)
+
+            for (const tool of tools) {
+                await this.createKeywordMappingsForTool(tool.name, tool.description)
+            }
+
+            console.log('强制创建关键词映射完成')
+        } catch (error) {
+            console.error('强制创建关键词映射失败:', error)
+            throw error
+        }
+    }
+
+    /**
+     * 为特定工具创建关键词映射
+     */
+    private async createKeywordMappingsForTool(toolName: string, description?: string): Promise<void> {
+        const keywords = this.getToolSpecificKeywords(toolName)
+        
+        // 如果有描述，也从描述中提取关键词
+        if (description) {
+            const extractedKeywords = this.extractKeywords(toolName, description)
+            keywords.push(...extractedKeywords)
+        }
+
+        // 去重
+        const uniqueKeywords = Array.from(new Set(keywords))
+
+        if (uniqueKeywords.length > 0) {
+            await this.updateKeywordMappings(toolName, uniqueKeywords)
+            console.log(`为工具 ${toolName} 创建了 ${uniqueKeywords.length} 个关键词映射`)
         }
     }
 
@@ -468,14 +634,50 @@ export class ToolMetadataService {
         try {
             const inputLower = userInput.toLowerCase()
 
-            // 分词处理用户输入
-            const inputWords = inputLower.split(/\s+/).filter(word => word.length > 1)
+            // 改进分词处理用户输入，支持中文
+            const inputWords = []
+            
+            // 添加整个输入
+            inputWords.push(inputLower)
+            
+            // 英文分词
+            const englishWords = inputLower.split(/\s+/).filter(word => word.length > 1)
+            inputWords.push(...englishWords)
+            
+            // 中文关键词提取
+            const chineseKeywords = ['解决', '皇后', '问题', '8皇后', '皇后问题', 'n皇后', '八皇后', '数独', '示例', '运行', '求解']
+            chineseKeywords.forEach(keyword => {
+                if (inputLower.includes(keyword)) {
+                    inputWords.push(keyword)
+                }
+            })
+            
+            // 数字+中文组合
+            const numberChineseMatches = inputLower.match(/\d+[^\d\s\w]+/g)
+            if (numberChineseMatches) {
+                inputWords.push(...numberChineseMatches)
+            }
+            
+            // 去重
+            const uniqueWords = [...new Set(inputWords)]
 
             // 使用关键词匹配查找相关工具
             const result = await client.query(`
         SELECT DISTINCT t.name as tool_name, 
                array_agg(DISTINCT tkm.keyword) as keywords,
-               COUNT(DISTINCT tkm.keyword) * AVG(tkm.confidence) as confidence
+               -- 计算相关性得分：优先考虑特定关键词匹配，并标准化到0-1范围
+               LEAST(1.0, (
+                 -- 精确匹配得分 (权重最高)
+                 COUNT(CASE WHEN tkm.keyword = ANY($2) THEN 1 END) * 0.3 +
+                 -- 特定关键词额外加分 (如"8皇后"、"皇后问题"等)
+                 COUNT(CASE WHEN tkm.keyword IN ('8皇后', '皇后问题', 'n皇后', '八皇后', 'queens problem', 'n queens') AND tkm.keyword = ANY($2) THEN 1 END) * 0.4 +
+                 -- 部分匹配得分
+                 COUNT(CASE WHEN $1 ILIKE '%' || tkm.keyword || '%' THEN 1 END) * 0.2 +
+                 -- 关键词长度匹配得分 (更长的关键词权重更高)
+                 SUM(CASE WHEN tkm.keyword = ANY($2) THEN LENGTH(tkm.keyword) * 0.01 ELSE 0 END) +
+                 -- 基础置信度
+                 0.1
+               ) / GREATEST(1, COUNT(DISTINCT tkm.keyword) * 0.5)) as confidence
         FROM mcp_tools t
         JOIN tool_keyword_mappings tkm ON t.name = tkm.tool_name
         WHERE tkm.keyword = ANY($2)
@@ -486,8 +688,8 @@ export class ToolMetadataService {
         LIMIT 10
       `, [
                 inputLower,
-                inputWords,
-                inputWords.map(word => `%${word}%`)
+                uniqueWords,
+                uniqueWords.map(word => `%${word}%`)
             ])
 
             return result.rows.map(row => ({

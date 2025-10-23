@@ -28,7 +28,7 @@ export interface MCPInitializationStatus {
  * MCP系统初始化器
  * 
  * 按照完整流程初始化MCP系统：
- * 1. 加载mcp.json配置
+ * 1. 加载config/mcp.json配置
  * 2. 连接MCP服务器
  * 3. 获取工具信息
  * 4. 动态初始化工具关键词映射
@@ -68,7 +68,7 @@ export class MCPInitializer {
       // 重置状态
       this.resetStatus()
 
-      // 步骤1: 加载mcp.json配置
+      // 步骤1: 加载config/mcp.json配置
       await this.loadConfiguration()
 
       // 步骤2: 连接MCP服务器
@@ -98,7 +98,7 @@ export class MCPInitializer {
   }
 
   /**
-   * 步骤1: 加载mcp.json配置
+   * 步骤1: 加载config/mcp.json配置
    */
   private async loadConfiguration(): Promise<void> {
     console.log('步骤1: 加载MCP配置...')

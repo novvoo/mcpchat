@@ -59,15 +59,23 @@ sudo apt-get install postgresql postgresql-contrib
 # Install pgvector from source or package
 ```
 
-4. Set up environment variables:
+4. Configure LLM settings:
 ```bash
-cp .env.example .env
+cp config/llm.json.example config/llm.json
 ```
 
-Edit `.env`:
-```env
-LLM_URL=https://your-llm-api.com/v1
-LLM_API_KEY=your-api-key
+Edit `config/llm.json`:
+```json
+{
+  "url": "https://your-llm-api.com/v1/chat/completions",
+  "apiKey": "your-api-key",
+  "timeout": 30000,
+  "maxTokens": 2000,
+  "temperature": 0.7,
+  "headers": {
+    "Content-Type": "application/json"
+  }
+}
 ```
 
 5. Configure database:
@@ -98,7 +106,7 @@ Edit `config/database.json`:
 }
 ```
 
-6. Configure MCP servers in `mcp.json`:
+6. Configure MCP servers in `config/mcp.json`:
 ```json
 {
   "mcpServers": {
@@ -158,12 +166,45 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
   - `similarityThreshold`: Minimum similarity score (0-1)
   - `maxResults`: Maximum search results
 
-### LLM Configuration (Environment Variables)
+### LLM Configuration (`config/llm.json`)
 
-- `LLM_URL`: LLM API endpoint (OpenAI-compatible)
-- `LLM_API_KEY`: API authentication key
+Configure your LLM service settings:
 
-### MCP Configuration (`mcp.json`)
+- `url`: LLM API endpoint (OpenAI-compatible)
+- `apiKey`: API authentication key
+- `timeout`: Request timeout in milliseconds (default: 30000)
+- `maxTokens`: Maximum tokens per response (default: 2000)
+- `temperature`: Response randomness 0-1 (default: 0.7)
+- `headers`: Additional HTTP headers (optional)
+
+**Note**: Environment variables `LLM_URL` and `LLM_API_KEY` are still supported as fallbacks if the config file is not available.
+
+### Embeddings Configuration (`config/embeddings.json`)
+
+Configure the embeddings service for text similarity and tool routing:
+
+```json
+{
+  "provider": "openai",
+  "model": "text-embedding-ada-002",
+  "dimensions": 1536,
+  "endpoint": "/embeddings",
+  "batchSize": 100,
+  "fallback": {
+    "enabled": true,
+    "type": "mock"
+  }
+}
+```
+
+- `provider`: Embedding service provider (currently supports "openai")
+- `model`: Embedding model to use
+- `dimensions`: Vector dimensions for embeddings
+- `endpoint`: API endpoint for embeddings
+- `batchSize`: Maximum number of texts to process in one batch
+- `fallback`: Fallback configuration when the embedding service is unavailable
+
+### MCP Configuration (`config/mcp.json`)
 
 Define MCP servers and their connection details. See [MCP documentation](https://modelcontextprotocol.io) for details.
 
@@ -241,7 +282,7 @@ npm run lint
 - Ensure embedding service is initialized
 
 ### MCP Tools Not Loading
-- Verify MCP server configuration in `mcp.json`
+- Verify MCP server configuration in `config/mcp.json`
 - Check MCP server logs
 - Ensure server commands are executable
 

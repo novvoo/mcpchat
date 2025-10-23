@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -70,9 +70,11 @@ interface DebugResult {
 export default function DebugMCPLLMPage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DebugResult | null>(null)
-  const [message, setMessage] = useState('解决8皇后问题')
+  const [message, setMessage] = useState('')
   const [testMode, setTestMode] = useState('full_flow')
   const [enableTracing, setEnableTracing] = useState(true)
+  const [presetTests, setPresetTests] = useState<any[]>([])
+  const [loadingPresets, setLoadingPresets] = useState(true)
 
   const runDebug = async () => {
     setLoading(true)
@@ -101,44 +103,142 @@ export default function DebugMCPLLMPage() {
     }
   }
 
-  const presetTests = [
-    {
-      name: 'N皇后问题 (应走MCP路径)',
-      message: '解决8皇后问题',
-      testMode: 'smart_router',
-      expectedFlow: 'Smart Router → MCP Tool'
-    },
-    {
-      name: 'N皇后问题解释 (应走LLM路径)',
-      message: '什么是N皇后问题？请详细解释',
-      testMode: 'smart_router',
-      expectedFlow: 'Smart Router → LLM'
-    },
-    {
-      name: '数独求解 (应走MCP路径)',
-      message: '帮我解这个数独：[[5,3,0,0,7,0,0,0,0],[6,0,0,1,9,5,0,0,0],[0,9,8,0,0,0,0,6,0],[8,0,0,0,6,0,0,0,3],[4,0,0,8,0,3,0,0,1],[7,0,0,0,2,0,0,0,6],[0,6,0,0,0,0,2,8,0],[0,0,0,4,1,9,0,0,5],[0,0,0,0,8,0,0,7,9]]',
-      testMode: 'smart_router',
-      expectedFlow: 'Smart Router → MCP Tool'
-    },
-    {
-      name: '运行示例 (应走MCP路径)',
-      message: 'run example basic',
-      testMode: 'smart_router',
-      expectedFlow: 'Smart Router → MCP Tool'
-    },
-    {
-      name: '一般对话 (应走LLM路径)',
-      message: '你好，今天天气怎么样？',
-      testMode: 'smart_router',
-      expectedFlow: 'Smart Router → LLM'
-    },
-    {
-      name: '多场景测试',
-      message: '解决8皇后问题',
-      testMode: 'test_cases',
-      expectedFlow: '测试多种输入场景'
+  useEffect(() => {
+    loadPresetTests()
+  }, [])
+
+  const loadPresetTests = async () => {
+    setLoadingPresets(true)
+    try {
+      // 从数据库加载样例问题
+      const response = await fetch('/api/sample-problems?action=recommended&limit=6')
+      const result = await response.json()
+      
+      const dynamicTests: any[] = []
+      
+      if (result.success && result.data.length > 0) {
+        result.data.forEach((problem: any) => {
+          const testInput = generateTestInput(problem)
+          if (testInput) {
+            dynamicTests.push({
+              name: `${problem.title || problem.title_en} (应走MCP路径)`,
+              message: testInput,
+              testMode: 'smart_router',
+              expectedFlow: `Smart Router → ${problem.tool_name}`,
+              source: 'database'
+            })
+          }
+        })
+      }
+      
+      // 添加预定义的测试用例
+      const staticTests = [
+        {
+          name: 'N皇后问题解释 (应走LLM路径)',
+          message: '什么是N皇后问题？请详细解释',
+          testMode: 'smart_router',
+          expectedFlow: 'Smart Router → LLM',
+          source: 'predefined'
+        },
+        {
+          name: '一般对话 (应走LLM路径)',
+          message: '你好，今天天气怎么样？',
+          testMode: 'smart_router',
+          expectedFlow: 'Smart Router → LLM',
+          source: 'predefined'
+        },
+        {
+          name: '多场景测试',
+          message: dynamicTests.length > 0 ? dynamicTests[0].message : '解决问题',
+          testMode: 'test_cases',
+          expectedFlow: '测试多种输入场景',
+          source: 'predefined'
+        }
+      ]
+      
+      setPresetTests([...dynamicTests, ...staticTests])
+    } catch (error) {
+      console.error('加载预设测试失败:', error)
+      // 备用测试用例 - 尝试从默认样例问题生成
+      try {
+        const fallbackResponse = await fetch('/api/sample-problems?action=by-tool&tool_name=solve_n_queens')
+        const fallbackResult = await fallbackResponse.json()
+        
+        const fallbackTests = [
+          {
+            name: '一般对话 (应走LLM路径)',
+            message: '你好，今天天气怎么样？',
+            testMode: 'smart_router',
+            expectedFlow: 'Smart Router → LLM',
+            source: 'fallback'
+          }
+        ]
+        
+        if (fallbackResult.success && fallbackResult.data.length > 0) {
+          const problem = fallbackResult.data[0]
+          const testInput = generateTestInput(problem)
+          if (testInput) {
+            fallbackTests.unshift({
+              name: `${problem.title || problem.title_en} (应走MCP路径)`,
+              message: testInput,
+              testMode: 'smart_router',
+              expectedFlow: `Smart Router → ${problem.tool_name}`,
+              source: 'fallback'
+            })
+          }
+        }
+        
+        setPresetTests(fallbackTests)
+      } catch {
+        // 最终备用
+        setPresetTests([
+          {
+            name: '算法问题 (应走MCP路径)',
+            message: '请处理一个算法问题',
+            testMode: 'smart_router',
+            expectedFlow: 'Smart Router → MCP Tool',
+            source: 'fallback'
+          },
+          {
+            name: '一般对话 (应走LLM路径)',
+            message: '你好，今天天气怎么样？',
+            testMode: 'smart_router',
+            expectedFlow: 'Smart Router → LLM',
+            source: 'fallback'
+          }
+        ])
+      }
+    } finally {
+      setLoadingPresets(false)
     }
-  ]
+  }
+
+  const generateTestInput = (problem: any): string | null => {
+    const toolName = problem.tool_name
+    const params = problem.parameters || {}
+    
+    switch (toolName) {
+      case 'solve_n_queens':
+        const n = params.n || 8
+        return `解决${n}皇后问题`
+        
+      case 'solve_sudoku':
+        if (params.puzzle) {
+          return `帮我解这个数独：${JSON.stringify(params.puzzle)}`
+        }
+        return '帮我解数独'
+        
+      case 'run_example':
+        const exampleType = params.example_type || 'basic'
+        return `run example ${exampleType}`
+        
+      default:
+        if (problem.title) {
+          return `请帮我处理：${problem.title}`
+        }
+        return null
+    }
+  }
 
   const usePreset = (preset: typeof presetTests[0]) => {
     setMessage(preset.message)

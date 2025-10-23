@@ -56,7 +56,7 @@ export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES]
 // Default configuration values
 export const DEFAULT_CONFIG = {
   LLM_URL: 'https://ch.at/v1/chat/completions',
-  MCP_CONFIG_PATH: './mcp.json',
+  MCP_CONFIG_PATH: './config/mcp.json',
   MAX_MESSAGE_LENGTH: 10000,
   MAX_CONVERSATION_MESSAGES: 100,
   REQUEST_TIMEOUT: 30000, // 30 seconds

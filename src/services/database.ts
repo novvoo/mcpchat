@@ -1,6 +1,7 @@
 // Database Service - PostgreSQL connection management
 
-import { Pool, PoolClient } from 'pg'
+import { Pool } from 'pg'
+import type { PoolClient } from 'pg'
 import pgvector from 'pgvector/pg'
 import fs from 'fs'
 import path from 'path'

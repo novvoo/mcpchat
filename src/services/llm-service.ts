@@ -50,7 +50,18 @@ export class OpenAICompatibleLLMService implements LLMService {
       
       const llmConfig = configLoader.getLLMConfig()
       this.baseUrl = llmConfig.url
-      this.headers = { ...llmConfig.headers }
+      this.timeout = llmConfig.timeout || DEFAULT_CONFIG.REQUEST_TIMEOUT
+      
+      // Build headers from config
+      this.headers = {
+        'Content-Type': 'application/json',
+        ...llmConfig.headers
+      }
+      
+      // Add Authorization header if API key is provided
+      if (llmConfig.apiKey) {
+        this.headers['Authorization'] = `Bearer ${llmConfig.apiKey}`
+      }
       
       console.log('LLM Service initialized with endpoint:', this.baseUrl)
     } catch (error) {
@@ -67,6 +78,10 @@ export class OpenAICompatibleLLMService implements LLMService {
       // Validate messages
       this.validateMessages(messages)
 
+      // Get current configuration for request parameters
+      const configLoader = getConfigLoader()
+      const llmConfig = configLoader.getLLMConfig()
+
       // Prepare request payload
       const requestPayload = {
         messages: messages.map(msg => ({
@@ -74,8 +89,8 @@ export class OpenAICompatibleLLMService implements LLMService {
           content: msg.content,
           ...(msg.tool_calls && { tool_calls: msg.tool_calls })
         })),
-        temperature: 0.7,
-        max_tokens: 2000,
+        temperature: llmConfig.temperature || 0.7,
+        max_tokens: llmConfig.maxTokens || 2000,
         stream: false
       }
 

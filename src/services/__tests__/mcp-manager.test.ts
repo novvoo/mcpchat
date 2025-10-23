@@ -12,7 +12,7 @@ jest.mock('fs', () => ({
   ...jest.requireActual('fs'),
   readFileSync: jest.fn((path: string) => {
     if (path.includes('mcp.json')) {
-      // Return the actual mcp.json content for tests
+      // Return the actual config/mcp.json content for tests
       return JSON.stringify({
         "mcpServers": {
           "gurddy-http": {
@@ -197,7 +197,7 @@ describe('MCPManager', () => {
   })
 
   describe('initialize', () => {
-    it('initializes with configuration from mcp.json', async () => {
+    it('initializes with configuration from config/mcp.json', async () => {
       setTimeout(() => {
         // Don't trigger error to simulate success
       }, 0)

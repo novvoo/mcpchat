@@ -4,6 +4,34 @@ import { getMCPToolsService } from '@/services/mcp-tools'
 import { getLLMService } from '@/services/llm-service'
 import { ChatMessage } from '@/types'
 
+// 辅助函数：为样例问题生成测试输入
+function generateTestInputForProblem(problem: any): string | null {
+  const toolName = problem.tool_name
+  const params = problem.parameters || {}
+  
+  switch (toolName) {
+    case 'solve_n_queens':
+      const n = params.n || 8
+      return `解决${n}皇后问题`
+      
+    case 'solve_sudoku':
+      if (params.puzzle) {
+        return `帮我解这个数独：${JSON.stringify(params.puzzle)}`
+      }
+      return '帮我解数独'
+      
+    case 'run_example':
+      const exampleType = params.example_type || 'basic'
+      return `run example ${exampleType}`
+      
+    default:
+      if (problem.title) {
+        return `请处理：${problem.title}`
+      }
+      return null
+  }
+}
+
 // 辅助函数：获取流程描述
 function getFlowDescription(source: string): string {
   switch (source) {
@@ -21,7 +49,7 @@ function getFlowDescription(source: string): string {
 export async function POST(request: NextRequest) {
   try {
     const {
-      message = "解决8皇后问题",
+      message = "请输入测试消息",
       testMode = "smart_router", // 默认使用智能路由模式
       enableTracing = true
     } = await request.json()
@@ -108,7 +136,7 @@ export async function POST(request: NextRequest) {
         const routerResponse = await smartRouter.processMessage(message, undefined, {
           enableMCPFirst: true,
           enableLLMFallback: true,
-          mcpConfidenceThreshold: 0.7
+          mcpConfidenceThreshold: 0.5  // 降低阈值到50%，更容易触发MCP工具
         })
         const routerEndTime = Date.now()
 
@@ -332,14 +360,66 @@ When you need to use a tool, respond with a tool call.`
     if (testMode === 'test_cases') {
       console.log('Step 4: Testing multiple input cases...')
 
-      const testCases = [
-        { input: "解决8皇后问题", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" },
+      // 动态生成测试用例
+      let testCases = [
         { input: "什么是N皇后问题？", expectedFlow: "llm", expectedBehavior: "should_use_llm_only" },
-        { input: "帮我解这个数独", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" },
         { input: "数独游戏的规则是什么？", expectedFlow: "llm", expectedBehavior: "should_use_llm_only" },
-        { input: "你好", expectedFlow: "llm", expectedBehavior: "should_use_llm_only" },
-        { input: "运行一个示例", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" }
+        { input: "你好", expectedFlow: "llm", expectedBehavior: "should_use_llm_only" }
       ]
+
+      try {
+        // 尝试从样例问题服务获取动态测试用例
+        const { getSampleProblemsService } = await import('@/services/sample-problems-service')
+        const sampleProblemsService = getSampleProblemsService()
+        const problems = await sampleProblemsService.getRecommendedProblems(3)
+        
+        problems.forEach(problem => {
+          const testInput = generateTestInputForProblem(problem)
+          if (testInput) {
+            testCases.unshift({
+              input: testInput,
+              expectedFlow: "mcp",
+              expectedBehavior: "should_use_mcp_directly"
+            })
+          }
+        })
+      } catch (error) {
+        console.log('Failed to load dynamic test cases, using fallback:', error)
+        // 添加备用测试用例 - 尝试从默认样例问题生成
+        try {
+          const { getSampleProblemsService } = await import('@/services/sample-problems-service')
+          const sampleProblemsService = getSampleProblemsService()
+          const fallbackProblems = await sampleProblemsService.searchProblems({ 
+            tool_name: 'solve_n_queens', 
+            limit: 1 
+          })
+          
+          const fallbackCases = [
+            { input: "帮我解数独", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" },
+            { input: "运行一个示例", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" }
+          ]
+          
+          if (fallbackProblems.length > 0) {
+            const testInput = generateTestInputForProblem(fallbackProblems[0])
+            if (testInput) {
+              fallbackCases.unshift({
+                input: testInput,
+                expectedFlow: "mcp",
+                expectedBehavior: "should_use_mcp_directly"
+              })
+            }
+          }
+          
+          testCases.unshift(...fallbackCases)
+        } catch {
+          // 最终备用
+          testCases.unshift(
+            { input: "请处理一个算法问题", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" },
+            { input: "帮我解数独", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" },
+            { input: "运行一个示例", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" }
+          )
+        }
+      }
 
       const testResults = []
       const smartRouter = getSmartRouter()

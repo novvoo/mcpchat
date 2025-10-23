@@ -18,6 +18,7 @@ export { ConnectionStatus } from './ConnectionStatus'
 export { LoadingIndicator, MessageLoadingIndicator, ToolExecutionIndicator, ConnectionLoadingIndicator, PageLoadingIndicator } from './LoadingIndicator'
 export { StatusBar } from './StatusBar'
 export { ToolExecutionProgress } from './ToolExecutionProgress'
+export { KeywordMappingStatus } from './KeywordMappingStatus'
 
 // Default exports
 export { default as MessageInputDefault } from './MessageInput'
@@ -33,3 +34,4 @@ export { default as ConnectionStatusDefault } from './ConnectionStatus'
 export { default as LoadingIndicatorDefault } from './LoadingIndicator'
 export { default as StatusBarDefault } from './StatusBar'
 export { default as ToolExecutionProgressDefault } from './ToolExecutionProgress'
+export { default as KeywordMappingStatusDefault } from './KeywordMappingStatus'

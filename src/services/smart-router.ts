@@ -270,8 +270,8 @@ export class SmartRouter {
     // 获取会话上下文
     const messages = conversationManager.getMessagesForLLM(conversationId)
 
-    // 添加基本系统消息（不包含工具定义）
-    await this.addToolDefinitionsToMessages(messages, userMessage)
+    // 添加基本系统消息（纯 LLM 模式，不涉及工具）
+    this.addSystemMessageForLLM(messages)
 
     // 发送到LLM - 纯对话模式，不包含工具信息
     console.log('Sending message to LLM in pure conversation mode (no tool definitions)')
@@ -301,23 +301,18 @@ export class SmartRouter {
 
 
   /**
-   * 添加工具定义到消息中（使用向量搜索）
+   * 为纯 LLM 模式添加系统消息
    * 
-   * 重要：根据架构要求，绝对不能在LLM请求中包含MCP工具信息
-   * MCP工具的选择和执行通过PostgreSQL/pgvector处理，与LLM无关
+   * 重要：纯 LLM 模式不使用任何 embedding 或工具定义
+   * 只是简单的对话模式
    */
-  private async addToolDefinitionsToMessages(
-    messages: ChatMessage[],
-    userQuery: string
-  ): Promise<void> {
-    // 根据架构要求：绝对不能在LLM请求中包含MCP工具信息
-    // MCP工具选择通过PostgreSQL/pgvector处理，与LLM无关
-    console.log('Skipping tool definitions addition to LLM messages - MCP tools handled separately via PostgreSQL/pgvector')
-    
-    // 只添加基本的系统消息，不包含任何工具定义
-    const systemMessage: ChatMessage = {
-      role: 'system',
-      content: `你是一个智能助手，专注于回答用户的问题和提供帮助。
+  private addSystemMessageForLLM(messages: ChatMessage[]): void {
+    // 检查是否已经有系统消息，如果没有则添加
+    const hasSystemMessage = messages.some(msg => msg.role === 'system')
+    if (!hasSystemMessage) {
+      const systemMessage: ChatMessage = {
+        role: 'system',
+        content: `你是一个智能助手，专注于回答用户的问题和提供帮助。
 
 重要指示：
 1. 仔细理解用户的问题并提供准确、有用的回答
@@ -326,86 +321,12 @@ export class SmartRouter {
 4. 如果不确定答案，诚实地说明并建议用户寻求更专业的帮助
 
 你的主要职责是通过对话为用户提供信息和建议。`
-    }
-
-    // 检查是否已经有系统消息，如果没有则添加
-    const hasSystemMessage = messages.some(msg => msg.role === 'system')
-    if (!hasSystemMessage) {
+      }
       messages.unshift(systemMessage)
     }
   }
 
-  /**
-   * 过滤与用户查询相关的工具
-   */
-  private filterRelevantTools(
-    tools: Array<{ name: string; description: string; inputSchema: any }>,
-    userQuery: string
-  ): Array<{ name: string; description: string; inputSchema: any }> {
-    // 如果工具数量较少，直接返回所有工具
-    if (tools.length <= 5) {
-      return tools
-    }
 
-    const queryLower = userQuery.toLowerCase()
-    const queryWords = queryLower.split(/\s+/)
-
-    // 为每个工具计算相关性分数
-    const scoredTools = tools.map(tool => {
-      let score = 0
-      const toolText = `${tool.name} ${tool.description}`.toLowerCase()
-
-      // 检查工具名称直接匹配
-      if (queryLower.includes(tool.name.toLowerCase())) {
-        score += 10
-      }
-
-      // 检查关键词匹配
-      for (const word of queryWords) {
-        if (word.length < 3) continue // 跳过太短的词
-        if (toolText.includes(word)) {
-          score += 2
-        }
-      }
-
-      // 特殊关键词匹配
-      const keywordMap: Record<string, string[]> = {
-        'queens': ['皇后', 'queen', 'n-queen', 'n_queen'],
-        'sudoku': ['数独', 'sudoku'],
-        'graph': ['图', 'graph', '图论', '着色', 'coloring'],
-        'map': ['地图', 'map', '着色', 'coloring'],
-        'lp': ['线性规划', 'linear', 'programming', 'lp', 'optimization'],
-        'production': ['生产', 'production', '规划', 'planning'],
-        'minimax': ['极小极大', 'minimax', '博弈', 'game'],
-        'portfolio': ['投资', 'portfolio', '组合'],
-        'facility': ['设施', 'facility', '选址', 'location'],
-        'statistical': ['统计', 'statistical', '拟合', 'fitting']
-      }
-
-      for (const [key, keywords] of Object.entries(keywordMap)) {
-        if (tool.name.toLowerCase().includes(key)) {
-          for (const keyword of keywords) {
-            if (queryLower.includes(keyword)) {
-              score += 5
-            }
-          }
-        }
-      }
-
-      return { tool, score }
-    })
-
-    // 按分数排序并取前8个工具
-    const sortedTools = scoredTools.sort((a, b) => b.score - a.score)
-    const topTools = sortedTools.slice(0, 8).map(item => item.tool)
-
-    // 如果没有任何工具得分，返回前8个工具
-    if (sortedTools[0].score === 0) {
-      return tools.slice(0, 8)
-    }
-
-    return topTools
-  }
 
   /**
    * 格式化MCP工具执行结果

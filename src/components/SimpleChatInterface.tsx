@@ -9,6 +9,7 @@ import { MessageInput } from './MessageInput'
 import { MessageList, MessageListHandle } from './MessageList'
 import { ErrorState, ChatEmptyState } from './EmptyState'
 import { ThemeToggle } from './ThemeProvider'
+import { KeywordMappingStatus } from './KeywordMappingStatus'
 
 interface SimpleChatInterfaceProps {
   apiKey?: string
@@ -77,12 +78,15 @@ export const SimpleChatInterface: React.FC<SimpleChatInterfaceProps> = ({
             <h1 className="text-base sm:text-lg md:text-xl font-semibold text-foreground truncate">
               MCP Chat
             </h1>
-            <p className="text-xs sm:text-sm text-muted-foreground truncate">
-              {messages.length === 0 
-                ? "Start a conversation with AI tools" 
-                : `${messages.length} message${messages.length !== 1 ? 's' : ''}`
-              }
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                {messages.length === 0 
+                  ? "Start a conversation with AI tools" 
+                  : `${messages.length} message${messages.length !== 1 ? 's' : ''}`
+                }
+              </p>
+              <KeywordMappingStatus className="max-w-xs" showDetails={false} />
+            </div>
           </div>
           
           <div className="flex items-center gap-1 sm:gap-2 ml-2">

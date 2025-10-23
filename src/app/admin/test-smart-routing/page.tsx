@@ -40,6 +40,14 @@ interface SmartRoutingResult {
     conversationId: string
 }
 
+interface TestCase {
+    name: string
+    input: string
+    description: string
+    source?: 'database' | 'predefined'
+    tool_name?: string
+}
+
 export default function TestSmartRoutingPage() {
     const [status, setStatus] = useState<SmartRoutingStatus | null>(null)
     const [loading, setLoading] = useState(false)
@@ -47,39 +55,136 @@ export default function TestSmartRoutingPage() {
     const [intentResult, setIntentResult] = useState<IntentResult | null>(null)
     const [routingResult, setRoutingResult] = useState<SmartRoutingResult | null>(null)
     const [error, setError] = useState<string | null>(null)
-
-    // 预设的测试用例
-    const testCases = [
-        {
-            name: '8皇后问题',
-            input: '解决8皇后问题',
-            description: '应该直接匹配到solve_n_queens工具'
-        },
-        {
-            name: '数独求解',
-            input: '帮我解这个数独：[[5,3,0,0,7,0,0,0,0],[6,0,0,1,9,5,0,0,0],[0,9,8,0,0,0,0,6,0],[8,0,0,0,6,0,0,0,3],[4,0,0,8,0,3,0,0,1],[7,0,0,0,2,0,0,0,6],[0,6,0,0,0,0,2,8,0],[0,0,0,4,1,9,0,0,5],[0,0,0,0,8,0,0,7,9]]',
-            description: '应该匹配到solve_sudoku工具并提取数独网格'
-        },
-        {
-            name: '运行示例',
-            input: 'run example basic',
-            description: '应该匹配到run_example工具'
-        },
-        {
-            name: '普通对话',
-            input: '你好，今天天气怎么样？',
-            description: '应该使用LLM处理，不匹配MCP工具'
-        },
-        {
-            name: '混合查询',
-            input: '请帮我解决一个10皇后问题，然后解释一下算法原理',
-            description: '可能触发混合模式：MCP执行+LLM解释'
-        }
-    ]
+    const [testCases, setTestCases] = useState<TestCase[]>([])
+    const [loadingTestCases, setLoadingTestCases] = useState(true)
 
     useEffect(() => {
         loadStatus()
+        loadTestCases()
     }, [])
+
+    const loadTestCases = async () => {
+        setLoadingTestCases(true)
+        try {
+            // 从数据库加载推荐的样例问题
+            const response = await fetch('/api/sample-problems?action=recommended&limit=8')
+            const result = await response.json()
+            
+            const dynamicTestCases: TestCase[] = []
+            
+            if (result.success && result.data.length > 0) {
+                // 将数据库中的样例问题转换为测试用例
+                result.data.forEach((problem: any) => {
+                    const testInput = generateTestInput(problem)
+                    if (testInput) {
+                        dynamicTestCases.push({
+                            name: problem.title || problem.title_en,
+                            input: testInput,
+                            description: `应该匹配到${problem.tool_name}工具 - ${problem.description}`,
+                            source: 'database',
+                            tool_name: problem.tool_name
+                        })
+                    }
+                })
+            }
+            
+            // 添加一些预定义的测试用例（非MCP工具相关）
+            const predefinedCases: TestCase[] = [
+                {
+                    name: '普通对话',
+                    input: '你好，今天天气怎么样？',
+                    description: '应该使用LLM处理，不匹配MCP工具',
+                    source: 'predefined'
+                },
+                {
+                    name: '混合查询',
+                    input: '请帮我解决一个10皇后问题，然后解释一下算法原理',
+                    description: '可能触发混合模式：MCP执行+LLM解释',
+                    source: 'predefined'
+                }
+            ]
+            
+            setTestCases([...dynamicTestCases, ...predefinedCases])
+        } catch (error) {
+            console.error('加载测试用例失败:', error)
+            // 如果加载失败，尝试从默认样例问题生成备用测试用例
+            try {
+                const fallbackResponse = await fetch('/api/sample-problems?action=by-tool&tool_name=solve_n_queens')
+                const fallbackResult = await fallbackResponse.json()
+                
+                const fallbackCases: TestCase[] = [
+                    {
+                        name: '普通对话',
+                        input: '你好，今天天气怎么样？',
+                        description: '应该使用LLM处理，不匹配MCP工具',
+                        source: 'predefined'
+                    }
+                ]
+                
+                if (fallbackResult.success && fallbackResult.data.length > 0) {
+                    const problem = fallbackResult.data[0]
+                    const testInput = generateTestInput(problem)
+                    if (testInput) {
+                        fallbackCases.unshift({
+                            name: problem.title || problem.title_en,
+                            input: testInput,
+                            description: `应该直接匹配到${problem.tool_name}工具`,
+                            source: 'database',
+                            tool_name: problem.tool_name
+                        })
+                    }
+                }
+                
+                setTestCases(fallbackCases)
+            } catch {
+                // 最终备用
+                setTestCases([
+                    {
+                        name: '算法问题',
+                        input: '请处理一个算法问题',
+                        description: '应该匹配到相应的MCP工具',
+                        source: 'predefined'
+                    },
+                    {
+                        name: '普通对话',
+                        input: '你好，今天天气怎么样？',
+                        description: '应该使用LLM处理，不匹配MCP工具',
+                        source: 'predefined'
+                    }
+                ])
+            }
+        } finally {
+            setLoadingTestCases(false)
+        }
+    }
+
+    const generateTestInput = (problem: any): string | null => {
+        const toolName = problem.tool_name
+        const params = problem.parameters || {}
+        
+        switch (toolName) {
+            case 'solve_n_queens':
+                const n = params.n || 8
+                return `解决${n}皇后问题`
+                
+            case 'solve_sudoku':
+                if (params.puzzle) {
+                    return `帮我解这个数独：${JSON.stringify(params.puzzle)}`
+                }
+                return '帮我解数独'
+                
+            case 'run_example':
+                const exampleType = params.example_type || 'basic'
+                return `run example ${exampleType}`
+                
+            default:
+                // 对于其他工具，生成通用的测试输入
+                if (problem.title) {
+                    return `请帮我处理：${problem.title}`
+                }
+                return null
+        }
+    }
 
     const loadStatus = async () => {
         try {
@@ -322,7 +427,7 @@ export default function TestSmartRoutingPage() {
                         <div className="text-center p-4 border rounded-lg">
                             <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2 text-sm font-bold">1</div>
                             <h4 className="font-medium mb-1">初始化MCP</h4>
-                            <p className="text-xs text-muted-foreground">加载mcp.json配置，连接服务器</p>
+                            <p className="text-xs text-muted-foreground">加载config/mcp.json配置，连接服务器</p>
                         </div>
 
                         <div className="text-center p-4 border rounded-lg">
@@ -349,30 +454,57 @@ export default function TestSmartRoutingPage() {
             {/* 测试用例 */}
             <Card>
                 <CardHeader>
-                    <CardTitle>预设测试用例</CardTitle>
+                    <CardTitle className="flex items-center gap-2">
+                        动态测试用例
+                        <Button
+                            onClick={loadTestCases}
+                            disabled={loadingTestCases}
+                            variant="ghost"
+                            size="sm"
+                        >
+                            <RefreshCw className="h-4 w-4" />
+                        </Button>
+                    </CardTitle>
                     <CardDescription>
-                        点击使用预设的测试用例来快速测试不同场景
+                        从数据库动态加载的样例问题测试用例，点击使用
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {testCases.map((testCase, index) => (
-                            <Card key={index} className="cursor-pointer hover:bg-muted/50" onClick={() => useTestCase(testCase)}>
-                                <CardContent className="p-4">
-                                    <h4 className="font-medium mb-2">{testCase.name}</h4>
-                                    <p className="text-sm text-muted-foreground mb-2">
-                                        {testCase.description}
-                                    </p>
-                                    <p className="text-xs bg-muted p-2 rounded font-mono">
-                                        {testCase.input.length > 50
-                                            ? testCase.input.substring(0, 50) + '...'
-                                            : testCase.input
-                                        }
-                                    </p>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
+                    {loadingTestCases ? (
+                        <div className="flex items-center justify-center p-8">
+                            <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                            <span>加载测试用例中...</span>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {testCases.map((testCase, index) => (
+                                <Card key={index} className="cursor-pointer hover:bg-muted/50" onClick={() => useTestCase(testCase)}>
+                                    <CardContent className="p-4">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <h4 className="font-medium">{testCase.name}</h4>
+                                            <Badge variant={testCase.source === 'database' ? 'default' : 'secondary'} className="text-xs">
+                                                {testCase.source === 'database' ? '数据库' : '预定义'}
+                                            </Badge>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground mb-2">
+                                            {testCase.description}
+                                        </p>
+                                        {testCase.tool_name && (
+                                            <Badge variant="outline" className="text-xs mb-2">
+                                                {testCase.tool_name}
+                                            </Badge>
+                                        )}
+                                        <p className="text-xs bg-muted p-2 rounded font-mono">
+                                            {testCase.input.length > 50
+                                                ? testCase.input.substring(0, 50) + '...'
+                                                : testCase.input
+                                            }
+                                        </p>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 

@@ -1,8 +1,10 @@
 // Configuration loader and manager for MCP servers
 
-import { MCPServerConfig, AppConfig } from '@/types'
+import { MCPServerConfig, AppConfig, LLMConfig, EmbeddingsConfig } from '@/types'
 import { DEFAULT_CONFIG, ENV_VARS } from '@/types/constants'
 import { getMCPConfig } from '@/lib/mcp-config'
+import { getLLMConfig } from '@/lib/llm-config'
+import { getEmbeddingsConfig } from '@/lib/embeddings-config'
 
 /**
  * Configuration loader class for managing MCP server configurations
@@ -24,7 +26,7 @@ export class ConfigLoader {
   }
 
   /**
-   * Load configuration from environment variables and mcp.json file
+   * Load configuration from environment variables and config/mcp.json file
    */
   public async loadConfig(): Promise<AppConfig> {
     if (this.config) {
@@ -32,15 +34,19 @@ export class ConfigLoader {
     }
 
     try {
-      // Load LLM configuration from environment variables
-      const llmConfig = this.loadLLMConfig()
+      // Load LLM configuration from file
+      const llmConfig = await this.loadLLMConfig()
       
       // Load MCP configuration from file
       const mcpConfig = await this.loadMCPConfig()
 
+      // Load embeddings configuration from file
+      const embeddingsConfig = await this.loadEmbeddingsConfig()
+
       this.config = {
         llm: llmConfig,
-        mcp: mcpConfig
+        mcp: mcpConfig,
+        embeddings: embeddingsConfig
       }
 
       return this.config
@@ -51,23 +57,33 @@ export class ConfigLoader {
   }
 
   /**
-   * Load LLM service configuration from environment variables
+   * Load LLM service configuration from file
    */
-  private loadLLMConfig() {
-    const llmUrl = process.env[ENV_VARS.LLM_URL] || DEFAULT_CONFIG.LLM_URL
-    const llmApiKey = process.env[ENV_VARS.LLM_API_KEY] || ''
+  private async loadLLMConfig(): Promise<LLMConfig> {
+    try {
+      return await getLLMConfig()
+    } catch (error) {
+      console.warn('Failed to load LLM config from file:', error)
+      // Fall back to environment variables or default configuration
+      const llmUrl = process.env[ENV_VARS.LLM_URL] || DEFAULT_CONFIG.LLM_URL
+      const llmApiKey = process.env[ENV_VARS.LLM_API_KEY] || ''
 
-    return {
-      url: llmUrl,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': llmApiKey ? `Bearer ${llmApiKey}` : ''
+      return {
+        url: llmUrl,
+        apiKey: llmApiKey,
+        timeout: DEFAULT_CONFIG.REQUEST_TIMEOUT,
+        maxTokens: 2000,
+        temperature: 0.7,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': llmApiKey ? `Bearer ${llmApiKey}` : ''
+        }
       }
     }
   }
 
   /**
-   * Load MCP server configuration from mcp.json file
+   * Load MCP server configuration from config/mcp.json file
    */
   private async loadMCPConfig(): Promise<{ servers: Record<string, MCPServerConfig> }> {
     try {
@@ -78,6 +94,29 @@ export class ConfigLoader {
       console.warn('Failed to load MCP config from file:', error)
       // Fall back to empty configuration
       return { servers: {} }
+    }
+  }
+
+  /**
+   * Load embeddings configuration from embeddings.json file
+   */
+  private async loadEmbeddingsConfig(): Promise<EmbeddingsConfig> {
+    try {
+      return await getEmbeddingsConfig()
+    } catch (error) {
+      console.warn('Failed to load embeddings config from file:', error)
+      // Fall back to default configuration
+      return {
+        provider: 'openai',
+        model: 'text-embedding-ada-002',
+        dimensions: 1536,
+        endpoint: '/embeddings',
+        batchSize: 100,
+        fallback: {
+          enabled: true,
+          type: 'mock'
+        }
+      }
     }
   }
 
@@ -169,6 +208,16 @@ export class ConfigLoader {
       throw new Error('Configuration not loaded. Call loadConfig() first.')
     }
     return this.config.llm
+  }
+
+  /**
+   * Get embeddings service configuration
+   */
+  public getEmbeddingsConfig(): EmbeddingsConfig {
+    if (!this.config) {
+      throw new Error('Configuration not loaded. Call loadConfig() first.')
+    }
+    return this.config.embeddings
   }
 
   /**

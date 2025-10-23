@@ -7,6 +7,10 @@ jest.mock('../config', () => ({
     loadConfig: jest.fn(),
     getLLMConfig: jest.fn(() => ({
       url: 'https://test-api.com/v1',
+      apiKey: 'test-key',
+      timeout: 30000,
+      maxTokens: 2000,
+      temperature: 0.7,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer test-key'

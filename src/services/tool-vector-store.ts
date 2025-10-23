@@ -95,6 +95,39 @@ export class ToolVectorStore {
             }
         } catch (error) {
             console.error(`Failed to index tool ${tool.name}:`, error)
+            
+            // Try to store tool without embedding as fallback
+            try {
+                const client = await dbService.getClient()
+                if (client) {
+                    await client.query(
+                        `INSERT INTO mcp_tools (name, description, input_schema, server_name, metadata)
+                         VALUES ($1, $2, $3, $4, $5)
+                         ON CONFLICT (name) 
+                         DO UPDATE SET 
+                           description = EXCLUDED.description,
+                           input_schema = EXCLUDED.input_schema,
+                           server_name = EXCLUDED.server_name,
+                           metadata = EXCLUDED.metadata,
+                           updated_at = CURRENT_TIMESTAMP`,
+                        [
+                            tool.name,
+                            tool.description,
+                            JSON.stringify(tool.inputSchema),
+                            serverName,
+                            JSON.stringify({ 
+                                indexed_at: new Date().toISOString(),
+                                embedding_failed: true,
+                                error: error instanceof Error ? error.message : String(error)
+                            })
+                        ]
+                    )
+                    console.log(`Tool ${tool.name} stored without embedding (fallback)`)
+                    client.release()
+                }
+            } catch (fallbackError) {
+                console.error(`Failed to store tool ${tool.name} even without embedding:`, fallbackError)
+            }
             // Don't throw - allow system to continue
         }
     }

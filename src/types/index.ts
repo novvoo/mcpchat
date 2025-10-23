@@ -41,15 +41,36 @@ export interface ChatResponse {
   }
 }
 
+// LLM configuration interface
+export interface LLMConfig {
+  url: string
+  apiKey: string
+  timeout?: number
+  maxTokens?: number
+  temperature?: number
+  headers?: Record<string, string>
+}
+
+// Embeddings configuration interface
+export interface EmbeddingsConfig {
+  provider: string
+  model: string
+  dimensions: number
+  endpoint: string
+  batchSize: number
+  fallback: {
+    enabled: boolean
+    type: string
+  }
+}
+
 // Application configuration interface
 export interface AppConfig {
-  llm: {
-    url: string
-    headers: Record<string, string>
-  }
+  llm: LLMConfig
   mcp: {
     servers: Record<string, MCPServerConfig>
   }
+  embeddings: EmbeddingsConfig
 }
 
 // Error response format for API endpoints

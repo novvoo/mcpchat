@@ -142,7 +142,7 @@ export default function TestMCPConnectionPage() {
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold">MCP 连接测试</h1>
         <p className="text-muted-foreground">
-          从mcp.json配置文件读取服务器信息进行测试
+          从config/mcp.json配置文件读取服务器信息进行测试
         </p>
       </div>
 
@@ -161,7 +161,7 @@ export default function TestMCPConnectionPage() {
               <div>
                 <CardTitle>MCP服务器配置</CardTitle>
                 <CardDescription>
-                  从mcp.json读取的服务器配置
+                  从config/mcp.json读取的服务器配置
                 </CardDescription>
               </div>
               <Button
@@ -219,7 +219,7 @@ export default function TestMCPConnectionPage() {
             <XCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
             <p className="text-lg font-medium mb-2">无法加载MCP配置</p>
             <p className="text-muted-foreground mb-4">
-              请确保项目根目录存在mcp.json文件
+              请确保config目录存在mcp.json文件
             </p>
             <Button onClick={loadMCPConfig} variant="outline">
               <RefreshCw className="h-4 w-4 mr-2" />

@@ -4,10 +4,10 @@ import path from 'path'
 
 export async function GET() {
   try {
-    const configPath = path.join(process.cwd(), 'mcp.json')
+    const configPath = path.join(process.cwd(), 'config', 'mcp.json')
     
     if (!fs.existsSync(configPath)) {
-      return NextResponse.json({ error: 'mcp.json not found' }, { status: 404 })
+      return NextResponse.json({ error: 'config/mcp.json not found' }, { status: 404 })
     }
 
     const configContent = fs.readFileSync(configPath, 'utf-8')
@@ -15,9 +15,9 @@ export async function GET() {
     
     return NextResponse.json(config)
   } catch (error) {
-    console.error('Error reading mcp.json:', error)
+    console.error('Error reading config/mcp.json:', error)
     return NextResponse.json(
-      { error: 'Failed to read mcp.json' }, 
+      { error: 'Failed to read config/mcp.json' }, 
       { status: 500 }
     )
   }

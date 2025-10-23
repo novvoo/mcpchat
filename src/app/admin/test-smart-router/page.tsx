@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 
 export default function TestSmartRouterPage() {
@@ -9,14 +9,95 @@ export default function TestSmartRouterPage() {
     const [result, setResult] = useState<any>(null)
     const [loading, setLoading] = useState(false)
 
-    const testExamples = [
-        '解决8皇后问题',
-        '运行一个示例',
-        '什么是N皇后问题？',
-        'solve n queens',
-        'run example',
-        '执行线性规划示例'
-    ]
+    const [testExamples, setTestExamples] = useState<string[]>([])
+    const [loadingExamples, setLoadingExamples] = useState(true)
+
+    useEffect(() => {
+        loadTestExamples()
+    }, [])
+
+    const loadTestExamples = async () => {
+        setLoadingExamples(true)
+        try {
+            // 从数据库加载样例问题
+            const response = await fetch('/api/sample-problems?action=recommended&limit=4')
+            const result = await response.json()
+            
+            const dynamicExamples: string[] = []
+            
+            if (result.success && result.data.length > 0) {
+                result.data.forEach((problem: any) => {
+                    const testInput = generateTestInput(problem)
+                    if (testInput) {
+                        dynamicExamples.push(testInput)
+                    }
+                })
+            }
+            
+            // 添加一些预定义的示例
+            const staticExamples = [
+                '什么是N皇后问题？',
+                'solve n queens',
+                'run example'
+            ]
+            
+            setTestExamples([...dynamicExamples, ...staticExamples])
+        } catch (error) {
+            console.error('加载测试示例失败:', error)
+            // 备用示例 - 尝试从默认样例问题生成
+            try {
+                const fallbackResponse = await fetch('/api/sample-problems?action=by-tool&tool_name=solve_n_queens')
+                const fallbackResult = await fallbackResponse.json()
+                
+                const fallbackExamples = ['什么是N皇后问题？', 'solve n queens', 'run example']
+                
+                if (fallbackResult.success && fallbackResult.data.length > 0) {
+                    const problem = fallbackResult.data[0]
+                    const testInput = generateTestInput(problem)
+                    if (testInput) {
+                        fallbackExamples.unshift(testInput)
+                    }
+                }
+                
+                setTestExamples(fallbackExamples)
+            } catch {
+                // 最终备用
+                setTestExamples([
+                    '请处理一个算法问题',
+                    '运行一个示例',
+                    '什么是N皇后问题？',
+                    'solve n queens',
+                    'run example'
+                ])
+            }
+        } finally {
+            setLoadingExamples(false)
+        }
+    }
+
+    const generateTestInput = (problem: any): string | null => {
+        const toolName = problem.tool_name
+        const params = problem.parameters || {}
+        
+        switch (toolName) {
+            case 'solve_n_queens':
+                const n = params.n || 8
+                return `解决${n}皇后问题`
+                
+            case 'solve_sudoku':
+                return '帮我解数独'
+                
+            case 'run_example':
+                const exampleType = params.example_type || 'basic'
+                return `run example ${exampleType}`
+                
+            default:
+                if (problem.title) {
+                    return `请处理：${problem.title}`
+                }
+                return null
+        }
+    }
 
     const handleTest = async () => {
         if (!message.trim()) return

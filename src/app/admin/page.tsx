@@ -14,10 +14,12 @@ import {
   Zap,
   Brain,
   Route,
-  Monitor
+  Monitor,
+  Server
 } from 'lucide-react'
 import ClientTime from '@/components/ClientTime'
 import ClientEnv from '@/components/ClientEnv'
+import { KeywordMappingStatus } from '@/components/KeywordMappingStatus'
 
 interface DebugLink {
   title: string
@@ -75,7 +77,7 @@ export default function AdminPage() {
     },
     {
       title: 'Test MCP Connection',
-      description: '从mcp.json配置测试MCP服务器连接',
+      description: '从config/mcp.json配置测试MCP服务器连接',
       href: '/admin/test-mcp-connection',
       icon: <Network className="h-5 w-5" />,
       category: 'test',
@@ -115,6 +117,29 @@ export default function AdminPage() {
       href: '/admin/color-test',
       icon: <Settings className="h-5 w-5" />,
       category: 'config',
+      status: 'active'
+    },
+    {
+      title: '样例问题管理',
+      description: '管理系统中的样例问题数据，包括8皇后、数独等',
+      href: '/admin/sample-problems',
+      icon: <Database className="h-5 w-5" />,
+      category: 'config',
+      status: 'active'
+    },
+    {
+      title: '样例问题测试',
+      description: '测试样例问题API和前端组件',
+      href: '/test-sample-problems',
+      icon: <TestTube className="h-5 w-5" />,
+      category: 'test',
+    },
+    {
+      title: 'MCP样例问题测试',
+      description: '测试从MCP服务器动态获取样例问题',
+      href: '/admin/test-mcp-problems',
+      icon: <Server className="h-5 w-5" />,
+      category: 'test',
       status: 'active'
     }
   ]
@@ -235,6 +260,22 @@ export default function AdminPage() {
           </CardContent>
         </Card>
       ))}
+
+      {/* 关键词映射状态 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="h-5 w-5" />
+            关键词映射状态
+          </CardTitle>
+          <CardDescription>
+            MCP工具的关键词映射覆盖情况，影响意图识别的准确性
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <KeywordMappingStatus showDetails={true} />
+        </CardContent>
+      </Card>
 
       {/* 系统信息 */}
       <Card>

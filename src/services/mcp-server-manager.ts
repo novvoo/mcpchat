@@ -400,6 +400,29 @@ export class MCPServerManager {
   }
 
   /**
+   * Get status of all servers
+   */
+  getServerStatus(): Record<string, {
+    config: MCPServerConfig
+    status: 'disconnected' | 'initializing' | 'connected' | 'error'
+    tools: Tool[]
+    error?: string
+  }> {
+    const status: Record<string, any> = {}
+    
+    for (const [serverName, serverInfo] of this.servers.entries()) {
+      status[serverName] = {
+        config: serverInfo.config,
+        status: serverInfo.status,
+        tools: [...serverInfo.tools],
+        error: serverInfo.error
+      }
+    }
+    
+    return status
+  }
+
+  /**
    * Call a tool on a specific server
    */
   async callTool(serverName: string, toolName: string, args: Record<string, any>): Promise<MCPCallToolResponse> {
@@ -610,11 +633,11 @@ export class MCPServerManager {
    */
   async initializeFromConfig(): Promise<Record<string, MCPServerConfig>> {
     try {
-      // Load configuration from mcp.json
+      // Load configuration from config/mcp.json
       const fs = await import('fs/promises')
       const path = await import('path')
       
-      const configPath = path.join(process.cwd(), 'mcp.json')
+      const configPath = path.join(process.cwd(), 'config', 'mcp.json')
       const configData = await fs.readFile(configPath, 'utf-8')
       const config = JSON.parse(configData)
       

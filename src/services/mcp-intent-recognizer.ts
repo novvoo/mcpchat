@@ -34,6 +34,9 @@ export class MCPIntentRecognizer {
       // 刷新工具元数据
       await metadataService.refreshToolMetadata()
       
+      // 确保关键词映射存在
+      await metadataService.ensureKeywordMappingsExist()
+      
       this.initialized = true
       console.log('MCP Intent Recognizer initialized with dynamic metadata')
     } catch (error) {

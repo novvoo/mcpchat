@@ -2,7 +2,7 @@
 
 // EmptyState Component - Display when no messages are present
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 
 interface EmptyStateProps {
   title?: string
@@ -30,7 +30,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4">{icon}</div>
         <h3 className="text-base sm:text-lg font-medium text-foreground mb-2">{title}</h3>
         <p className="text-sm sm:text-base text-muted-foreground mb-4 sm:mb-6">{subtitle}</p>
-        
+
         {suggestions.length > 0 && (
           <div className="space-y-2">
             <p className="text-xs sm:text-sm font-medium text-foreground mb-3">Try asking:</p>
@@ -52,19 +52,57 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   )
 }
 
+interface SampleProblem {
+  id: string
+  title: string
+  title_en?: string
+  description: string
+  difficulty: string
+  tool_name: string
+}
+
 /**
  * Chat-specific empty state with MCP tool suggestions
  */
 export const ChatEmptyState: React.FC<{
   onSuggestionClick?: (suggestion: string) => void
 }> = ({ onSuggestionClick }) => {
-  const suggestions = [
+  const [suggestions, setSuggestions] = useState<string[]>([
     "Solve the 8 queens problem",
-    "Help me with a sudoku puzzle",
+    "Help me with a sudoku puzzle", 
     "Optimize my investment portfolio",
     "Solve a graph coloring problem",
     "Run an example computation"
-  ]
+  ])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const loadSampleProblems = async () => {
+      try {
+        const response = await fetch('/api/sample-problems?action=recommended&limit=5')
+        const result = await response.json()
+        
+        if (result.success && result.data.length > 0) {
+          const problemSuggestions = result.data.map((problem: SampleProblem) => {
+            // 根据难度和语言选择合适的标题
+            const title = problem.title_en || problem.title
+            const difficultyPrefix = problem.difficulty === 'easy' ? '' : 
+                                   problem.difficulty === 'medium' ? 'Medium: ' : 
+                                   'Hard: '
+            return `${difficultyPrefix}${title}`
+          })
+          setSuggestions(problemSuggestions)
+        }
+      } catch (error) {
+        console.error('Failed to load sample problems:', error)
+        // 保持默认建议
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadSampleProblems()
+  }, [])
 
   return (
     <div className="flex items-center justify-center h-full">
@@ -72,8 +110,22 @@ export const ChatEmptyState: React.FC<{
         <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4">🤖</div>
         <h3 className="text-base sm:text-lg font-medium text-foreground mb-2">Welcome to MCP Chat!</h3>
         <p className="text-sm sm:text-base text-muted-foreground mb-4 sm:mb-6">I can help you solve problems using powerful computational tools.</p>
-        
-        {suggestions.length > 0 && (
+
+        {loading ? (
+          <div className="space-y-2 mb-6">
+            <p className="text-xs sm:text-sm font-medium text-foreground mb-3">Loading suggestions...</p>
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div
+                  key={i}
+                  className="block w-full px-3 sm:px-4 py-2 bg-accent/50 rounded-lg animate-pulse"
+                >
+                  <div className="h-4 bg-accent rounded w-3/4"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : suggestions.length > 0 && (
           <div className="space-y-2 mb-6">
             <p className="text-xs sm:text-sm font-medium text-foreground mb-3">Try asking:</p>
             <div className="space-y-2">
@@ -122,24 +174,24 @@ export const ErrorState: React.FC<{
   onRetry,
   className = ""
 }) => {
-  return (
-    <div className={`flex items-center justify-center h-full ${className}`}>
-      <div className="text-center max-w-sm sm:max-w-md mx-auto p-4 sm:p-6 animate-fade-in">
-        <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4">⚠️</div>
-        <h3 className="text-base sm:text-lg font-medium text-foreground mb-2">{title}</h3>
-        <p className="text-sm sm:text-base text-muted-foreground mb-4 sm:mb-6 break-words">{message}</p>
-        
-        {onRetry && (
-          <button
-            onClick={onRetry}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-all duration-200 hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            Try Again
-          </button>
-        )}
+    return (
+      <div className={`flex items-center justify-center h-full ${className}`}>
+        <div className="text-center max-w-sm sm:max-w-md mx-auto p-4 sm:p-6 animate-fade-in">
+          <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4">⚠️</div>
+          <h3 className="text-base sm:text-lg font-medium text-foreground mb-2">{title}</h3>
+          <p className="text-sm sm:text-base text-muted-foreground mb-4 sm:mb-6 break-words">{message}</p>
+
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-all duration-200 hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              Try Again
+            </button>
+          )}
+        </div>
       </div>
-    </div>
-  )
-}
+    )
+  }
 
 export default EmptyState
