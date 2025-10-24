@@ -224,7 +224,7 @@ export class SmartRouter {
       if (executionResult.success && executionResult.result) {
         response = this.formatMCPResult(toolName, executionResult.result, params)
       } else {
-        response = `工具执行失败: ${executionResult.error?.message || '未知错误'}`
+        response = this.formatMCPError(toolName, executionResult.error?.message || '未知错误', params)
       }
 
       // 添加助手响应到会话
@@ -341,17 +341,59 @@ export class SmartRouter {
           .join('\n')
 
         if (textContent) {
-          return this.addContextToResult(toolName, textContent, params)
+          // 尝试解析文本内容是否为JSON格式的响应
+          try {
+            const parsedContent = JSON.parse(textContent)
+            if (parsedContent && typeof parsedContent === 'object') {
+              if ('output' in parsedContent) {
+                // 如果是包含output字段的JSON，递归处理
+                return this.formatMCPResult(toolName, parsedContent, params)
+              } else {
+                // 其他JSON对象，直接处理
+                return this.formatMCPResult(toolName, parsedContent, params)
+              }
+            }
+          } catch {
+            // 不是JSON，直接处理文本
+          }
+          
+          return this.addContextToResult(toolName, this.formatToolOutput(toolName, textContent), params)
+        }
+      }
+
+      // 处理包含 rc 和 output 字段的响应格式
+      if (result && typeof result === 'object' && 'output' in result) {
+        const output = result.output || ''
+        const returnCode = result.rc !== undefined ? result.rc : null
+        
+        // 如果执行成功 (rc = 0)，直接返回格式化的输出
+        if (returnCode === 0 || returnCode === null) {
+          return this.addContextToResult(toolName, this.formatToolOutput(toolName, output), params)
+        } else {
+          // 如果执行失败，显示错误信息
+          return this.addContextToResult(toolName, `执行失败 (返回码: ${returnCode})\n${output}`, params)
         }
       }
 
       // 处理简单字符串结果
       if (typeof result === 'string') {
-        return this.addContextToResult(toolName, result, params)
+        return this.addContextToResult(toolName, this.formatToolOutput(toolName, result), params)
       }
 
-      // 处理对象结果
+      // 处理其他对象结果
       if (typeof result === 'object') {
+        // 检查是否是错误对象
+        if (result.error) {
+          const errorMessage = typeof result.error === 'string' ? result.error : JSON.stringify(result.error)
+          return this.formatMCPError(toolName, errorMessage, params)
+        }
+        
+        // 特殊处理某些工具的JSON响应
+        const specialFormatted = this.formatSpecialToolResponse(toolName, result)
+        if (specialFormatted) {
+          return this.addContextToResult(toolName, specialFormatted, params)
+        }
+        
         const formattedResult = JSON.stringify(result, null, 2)
         return this.addContextToResult(toolName, formattedResult, params)
       }
@@ -364,17 +406,396 @@ export class SmartRouter {
   }
 
   /**
+   * 格式化工具输出内容，使其更易读
+   */
+  private formatToolOutput(toolName: string, output: string): string {
+    if (!output || typeof output !== 'string') {
+      return output
+    }
+
+    // 根据工具类型进行特定格式化
+    switch (toolName) {
+      case 'run_example':
+        return this.formatExampleOutput(output)
+      case 'solve_n_queens':
+        return this.formatQueensOutput(output)
+      case 'solve_sudoku':
+        return this.formatSudokuOutput(output)
+      case 'install':
+        return this.formatInstallOutput(output)
+      default:
+        return this.formatGenericOutput(output)
+    }
+  }
+
+  /**
+   * 格式化示例运行输出
+   */
+  private formatExampleOutput(output: string): string {
+    // 移除过多的等号分隔线，保持结构清晰
+    let formatted = output
+      .replace(/={60,}/g, '\n---\n')  // 长等号线替换为短横线
+      .replace(/\n{3,}/g, '\n\n')     // 多个换行符合并为两个
+      .trim()
+
+    // 添加适当的标题格式
+    formatted = formatted
+      .replace(/^=== (.+) ===/gm, '## $1')  // 三等号标题转为二级标题
+      .replace(/^(.+):\s*$/gm, '**$1:**')   // 冒号结尾的行加粗
+
+    return formatted
+  }
+
+  /**
+   * 格式化N皇后问题输出
+   */
+  private formatQueensOutput(output: string): string {
+    return output
+      .replace(/Solution found:/g, '✅ **找到解决方案:**')
+      .replace(/No solution exists/g, '❌ **无解**')
+      .replace(/Board:/g, '**棋盘布局:**')
+  }
+
+  /**
+   * 格式化数独输出
+   */
+  private formatSudokuOutput(output: string): string {
+    return output
+      .replace(/Solved sudoku:/g, '✅ **数独已解决:**')
+      .replace(/Invalid sudoku/g, '❌ **无效的数独**')
+      .replace(/No solution/g, '❌ **无解**')
+  }
+
+  /**
+   * 格式化安装输出
+   */
+  private formatInstallOutput(output: string): string {
+    return output
+      .replace(/Successfully installed/g, '✅ **安装成功**')
+      .replace(/Requirement already satisfied/g, '✅ **已安装**')
+      .replace(/ERROR:/g, '❌ **错误:**')
+      .replace(/WARNING:/g, '⚠️ **警告:**')
+  }
+
+  /**
+   * 通用输出格式化
+   */
+  private formatGenericOutput(output: string): string {
+    return output
+      .replace(/\n{3,}/g, '\n\n')     // 合并多个换行符
+      .replace(/^(.+):\s*$/gm, '**$1:**')  // 冒号结尾的行加粗
+      .trim()
+  }
+
+  /**
+   * 特殊工具响应格式化
+   */
+  private formatSpecialToolResponse(toolName: string, result: any): string | null {
+    switch (toolName) {
+      case 'solve_n_queens':
+        return this.formatNQueensResponse(result)
+      case 'solve_sudoku':
+        return this.formatSudokuResponse(result)
+      default:
+        return null
+    }
+  }
+
+  /**
+   * 格式化N皇后问题响应
+   */
+  private formatNQueensResponse(result: any): string {
+    if (result.success && result.solution) {
+      const solution = result.solution
+      let board = ''
+      
+      // 生成棋盘显示
+      for (let row = 0; row < solution.length; row++) {
+        let rowStr = ''
+        for (let col = 0; col < solution.length; col++) {
+          if (solution[row] === col) {
+            rowStr += '♛ '  // 皇后
+          } else {
+            rowStr += '· '  // 空位
+          }
+        }
+        board += rowStr.trim() + '\n'
+      }
+      
+      return `✅ **找到解决方案!**\n\n**棋盘布局:**\n\`\`\`\n${board}\`\`\`\n\n**解向量:** [${solution.join(', ')}]\n\n每个数字表示该行皇后所在的列位置。`
+    } else if (result.error) {
+      return `❌ **求解失败:** ${result.error}`
+    } else {
+      return `❌ **无解**`
+    }
+  }
+
+  /**
+   * 格式化数独响应
+   */
+  private formatSudokuResponse(result: any): string {
+    if (result.success && result.solution) {
+      const solution = result.solution
+      let grid = ''
+      
+      for (let i = 0; i < 9; i++) {
+        if (i % 3 === 0 && i > 0) grid += '------+-------+------\n'
+        
+        for (let j = 0; j < 9; j++) {
+          if (j % 3 === 0 && j > 0) grid += '| '
+          grid += solution[i][j] + ' '
+        }
+        grid += '\n'
+      }
+      
+      return `✅ **数独已解决!**\n\n\`\`\`\n${grid}\`\`\``
+    } else if (result.error) {
+      return `❌ **求解失败:** ${result.error}`
+    } else {
+      return `❌ **无解**`
+    }
+  }
+
+  /**
    * 为结果添加上下文信息
    */
   private addContextToResult(toolName: string, result: string, params: Record<string, any>): string {
     const contextMap: Record<string, string> = {
-      'solve_n_queens': `N皇后问题求解结果 (N=${params.n || 8}):\n${result}`,
-      'solve_sudoku': `数独求解结果:\n${result}`,
-      'run_example': `示例运行结果 (类型: ${params.example_name || 'basic'}):\n${result}`,
-      'echo': `回显结果:\n${result}`
+      'solve_n_queens': `🔢 **N皇后问题求解** (N=${params.n || 8})\n\n${result}`,
+      'solve_sudoku': `🧩 **数独求解结果**\n\n${result}`,
+      'run_example': `🚀 **${this.getExampleDisplayName(params.example_name || 'basic')}示例运行**\n\n${result}`,
+      'echo': `📢 **回显结果**\n\n${result}`,
+      'install': `📦 **包安装结果**\n\n${result}`,
+      'info': `ℹ️ **系统信息**\n\n${result}`
     }
 
-    return contextMap[toolName] || `${toolName} 执行结果:\n${result}`
+    return contextMap[toolName] || `🔧 **${toolName} 执行结果**\n\n${result}`
+  }
+
+  /**
+   * 获取示例类型的显示名称
+   */
+  private getExampleDisplayName(exampleType: string): string {
+    const displayNames: Record<string, string> = {
+      'lp': '线性规划',
+      'basic': '基础',
+      'advanced': '高级',
+      'portfolio': '投资组合优化',
+      'transportation': '运输问题',
+      'assignment': '分配问题'
+    }
+    
+    return displayNames[exampleType] || exampleType
+  }
+
+  /**
+   * 格式化MCP工具执行错误
+   */
+  private formatMCPError(toolName: string, errorMessage: string, params: Record<string, any>): string {
+    try {
+      // 解析不同类型的错误
+      const formattedError = this.parseAndFormatError(toolName, errorMessage, params)
+      return this.addContextToResult(toolName, formattedError, params)
+    } catch (error) {
+      console.error('Error formatting MCP error:', error)
+      return this.addContextToResult(toolName, `❌ **执行失败**\n\n${errorMessage}`, params)
+    }
+  }
+
+  /**
+   * 解析和格式化错误信息
+   */
+  private parseAndFormatError(toolName: string, errorMessage: string, params: Record<string, any>): string {
+    // 缺少必需参数的错误
+    if (errorMessage.includes('missing') && errorMessage.includes('required')) {
+      return this.formatMissingParametersError(toolName, errorMessage, params)
+    }
+
+    // 无效参数错误
+    if (errorMessage.includes('Invalid arguments') || errorMessage.includes('invalid')) {
+      return this.formatInvalidArgumentsError(toolName, errorMessage, params)
+    }
+
+    // 类型错误
+    if (errorMessage.includes('TypeError') || errorMessage.includes('type')) {
+      return this.formatTypeError(toolName, errorMessage, params)
+    }
+
+    // 值错误
+    if (errorMessage.includes('ValueError') || errorMessage.includes('value')) {
+      return this.formatValueError(toolName, errorMessage, params)
+    }
+
+    // 连接错误
+    if (errorMessage.includes('connection') || errorMessage.includes('timeout')) {
+      return this.formatConnectionError(toolName, errorMessage)
+    }
+
+    // 通用错误格式化
+    return this.formatGenericError(toolName, errorMessage)
+  }
+
+  /**
+   * 格式化缺少参数错误
+   */
+  private formatMissingParametersError(toolName: string, errorMessage: string, params: Record<string, any>): string {
+    // 提取缺少的参数名称
+    const missingParams = this.extractMissingParameters(errorMessage)
+    const suggestions = this.generateParameterSuggestions(toolName, missingParams)
+
+    let formatted = `❌ **参数缺失**\n\n`
+    formatted += `工具 **${toolName}** 需要以下必需参数：\n\n`
+    
+    missingParams.forEach((param, index) => {
+      formatted += `${index + 1}. **${param}**`
+      if (suggestions[param]) {
+        formatted += ` - ${suggestions[param]}`
+      }
+      formatted += '\n'
+    })
+
+    if (Object.keys(params).length > 0) {
+      formatted += `\n**当前提供的参数:**\n`
+      Object.entries(params).forEach(([key, value]) => {
+        formatted += `• ${key}: ${JSON.stringify(value)}\n`
+      })
+    }
+
+    formatted += `\n💡 **建议:** 请提供完整的参数信息，或尝试更具体的描述让系统自动推断参数。`
+
+    return formatted
+  }
+
+  /**
+   * 格式化无效参数错误
+   */
+  private formatInvalidArgumentsError(toolName: string, errorMessage: string, params: Record<string, any>): string {
+    let formatted = `❌ **参数无效**\n\n`
+    formatted += `工具 **${toolName}** 的参数格式不正确。\n\n`
+    formatted += `**错误详情:** ${errorMessage}\n\n`
+
+    if (Object.keys(params).length > 0) {
+      formatted += `**提供的参数:**\n`
+      Object.entries(params).forEach(([key, value]) => {
+        formatted += `• ${key}: ${JSON.stringify(value)}\n`
+      })
+      formatted += '\n'
+    }
+
+    formatted += `💡 **建议:** 请检查参数格式，或使用更自然的语言描述您的需求。`
+
+    return formatted
+  }
+
+  /**
+   * 格式化类型错误
+   */
+  private formatTypeError(toolName: string, errorMessage: string, params: Record<string, any>): string {
+    let formatted = `❌ **参数类型错误**\n\n`
+    formatted += `工具 **${toolName}** 的参数类型不匹配。\n\n`
+    formatted += `**错误详情:** ${errorMessage}\n\n`
+
+    formatted += `💡 **建议:** 请确保参数类型正确（如数字、文本、数组等）。`
+
+    return formatted
+  }
+
+  /**
+   * 格式化值错误
+   */
+  private formatValueError(toolName: string, errorMessage: string, params: Record<string, any>): string {
+    let formatted = `❌ **参数值错误**\n\n`
+    formatted += `工具 **${toolName}** 的参数值不在有效范围内。\n\n`
+    formatted += `**错误详情:** ${errorMessage}\n\n`
+
+    formatted += `💡 **建议:** 请检查参数值是否在允许的范围内。`
+
+    return formatted
+  }
+
+  /**
+   * 格式化连接错误
+   */
+  private formatConnectionError(toolName: string, errorMessage: string): string {
+    let formatted = `🔌 **连接错误**\n\n`
+    formatted += `无法连接到工具 **${toolName}** 的服务。\n\n`
+    formatted += `**错误详情:** ${errorMessage}\n\n`
+
+    formatted += `💡 **建议:** 请稍后重试，或联系管理员检查服务状态。`
+
+    return formatted
+  }
+
+  /**
+   * 格式化通用错误
+   */
+  private formatGenericError(toolName: string, errorMessage: string): string {
+    let formatted = `❌ **执行失败**\n\n`
+    formatted += `工具 **${toolName}** 执行时遇到问题。\n\n`
+    formatted += `**错误详情:** ${errorMessage}\n\n`
+
+    formatted += `💡 **建议:** 请尝试重新描述您的需求，或联系支持获取帮助。`
+
+    return formatted
+  }
+
+  /**
+   * 提取缺少的参数名称
+   */
+  private extractMissingParameters(errorMessage: string): string[] {
+    const params: string[] = []
+    
+    // 匹配 "missing X required positional arguments: 'param1' and 'param2'"
+    const match1 = errorMessage.match(/missing \d+ required positional arguments?: (.+)/i)
+    if (match1) {
+      const paramStr = match1[1]
+      // 提取引号中的参数名
+      const paramMatches = paramStr.match(/'([^']+)'/g)
+      if (paramMatches) {
+        params.push(...paramMatches.map(p => p.replace(/'/g, '')))
+      }
+    }
+
+    // 匹配其他格式的缺少参数错误
+    const match2 = errorMessage.match(/required parameter[s]?\s*:?\s*([^.]+)/i)
+    if (match2 && params.length === 0) {
+      const paramStr = match2[1].trim()
+      params.push(...paramStr.split(/[,\s]+/).filter(p => p.length > 0))
+    }
+
+    return params
+  }
+
+  /**
+   * 生成参数建议
+   */
+  private generateParameterSuggestions(toolName: string, missingParams: string[]): Record<string, string> {
+    const suggestions: Record<string, string> = {}
+
+    // 基于工具名称和参数名称生成建议
+    missingParams.forEach(param => {
+      const paramLower = param.toLowerCase()
+      
+      if (paramLower.includes('return') || paramLower.includes('expected')) {
+        suggestions[param] = '预期收益率数组，例如 [0.1, 0.12, 0.08]'
+      } else if (paramLower.includes('covariance') || paramLower.includes('matrix')) {
+        suggestions[param] = '协方差矩阵，表示资产间的风险关系'
+      } else if (paramLower.includes('risk')) {
+        suggestions[param] = '风险容忍度，通常为0-1之间的数值'
+      } else if (paramLower.includes('weight') || paramLower.includes('allocation')) {
+        suggestions[param] = '权重分配，各资产的投资比例'
+      } else if (paramLower.includes('data') || paramLower.includes('input')) {
+        suggestions[param] = '输入数据，请提供具体的数据格式'
+      } else if (paramLower.includes('n') && toolName.includes('queens')) {
+        suggestions[param] = '棋盘大小，例如 8 表示8x8棋盘'
+      } else if (paramLower.includes('puzzle') && toolName.includes('sudoku')) {
+        suggestions[param] = '数独谜题，9x9的数字矩阵'
+      } else {
+        suggestions[param] = '请提供此参数的具体值'
+      }
+    })
+
+    return suggestions
   }
 
   /**
@@ -451,6 +872,13 @@ export class SmartRouter {
       console.error('Failed to get available tools:', error)
       return []
     }
+  }
+
+  /**
+   * 测试MCP结果格式化 (公共方法，用于测试)
+   */
+  public testFormatMCPResult(toolName: string, result: any, params: Record<string, any> = {}): string {
+    return this.formatMCPResult(toolName, result, params)
   }
 }
 

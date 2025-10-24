@@ -4,12 +4,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
-import { 
-  Settings, 
-  Bug, 
-  TestTube, 
-  Network, 
-  MessageSquare, 
+import {
+  Settings,
+  Bug,
+  TestTube,
+  Network,
+  MessageSquare,
   Database,
   Zap,
   Brain,
@@ -90,6 +90,22 @@ export default function AdminPage() {
       icon: <Route className="h-5 w-5" />,
       category: 'test',
       status: 'active'
+    },
+    {
+      title: 'Test MCP Formatting',
+      description: '测试MCP工具响应的格式化效果，对比原始和格式化后的显示',
+      href: '/admin/test-formatting',
+      icon: <MessageSquare className="h-5 w-5" />,
+      category: 'test',
+      status: 'beta'
+    },
+    {
+      title: 'Dynamic Patterns',
+      description: '动态模式学习管理，基于PostgreSQL/pgvector的智能关键词生成',
+      href: '/admin/dynamic-patterns',
+      icon: <Brain className="h-5 w-5" />,
+      category: 'config',
+      status: 'experimental'
     },
 
     // 监控页面
@@ -249,8 +265,8 @@ export default function AdminPage() {
                           <h3 className="font-semibold">{link.title}</h3>
                         </div>
                         {link.status && (
-                          <Badge 
-                            variant="secondary" 
+                          <Badge
+                            variant="secondary"
                             className={getStatusColor(link.status)}
                           >
                             {link.status}

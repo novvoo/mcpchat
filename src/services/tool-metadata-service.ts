@@ -237,11 +237,30 @@ export class ToolMetadataService {
     }
 
     /**
-     * 从工具名称和描述中提取关键词
+     * 从工具名称和描述中提取关键词 - 增强版本，支持动态模式识别
      */
     private async extractKeywords(name: string, description: string): Promise<string[]> {
         const keywords = new Set<string>()
 
+        // 1. 基础关键词提取
+        await this.extractBasicKeywords(name, description, keywords)
+
+        // 2. 基于模式的动态关键词生成
+        await this.generatePatternBasedKeywords(name, description, keywords)
+
+        // 3. 从数据库学习的关键词
+        await this.addLearnedKeywords(name, keywords)
+
+        // 4. 语义相似关键词（如果启用了向量搜索）
+        await this.addSemanticKeywords(name, description, keywords)
+
+        return Array.from(keywords)
+    }
+
+    /**
+     * 提取基础关键词
+     */
+    private async extractBasicKeywords(name: string, description: string, keywords: Set<string>): Promise<void> {
         // 从工具名称提取
         const nameWords = name.toLowerCase().split(/[_\-\s]+/)
         nameWords.forEach(word => {
@@ -261,64 +280,410 @@ export class ToolMetadataService {
                 keywords.add(word)
             }
         })
+    }
 
-        // 添加特定领域的关键词 - 扩展版本
+    /**
+     * 基于模式的动态关键词生成 - 核心增强功能
+     */
+    private async generatePatternBasedKeywords(name: string, description: string, keywords: Set<string>): Promise<void> {
+        try {
+            // 获取所有工具名称模式
+            const patterns = await this.getToolNamePatterns()
+
+            // 为当前工具匹配模式并生成关键词
+            for (const pattern of patterns) {
+                if (this.matchesPattern(name, pattern)) {
+                    const generatedKeywords = await this.generateKeywordsFromPattern(name, pattern)
+                    generatedKeywords.forEach(keyword => keywords.add(keyword))
+                }
+            }
+
+            // 基于描述内容的动态模式识别
+            const descriptionPatterns = await this.identifyDescriptionPatterns(description)
+            for (const pattern of descriptionPatterns) {
+                const patternKeywords = await this.generateKeywordsFromDescriptionPattern(pattern)
+                patternKeywords.forEach(keyword => keywords.add(keyword))
+            }
+
+        } catch (error) {
+            console.warn('动态模式关键词生成失败，使用静态模式:', error)
+            // 回退到静态模式
+            this.addStaticPatternKeywords(name, description, keywords)
+        }
+    }
+
+    /**
+     * 获取工具名称模式 - 从数据库动态学习
+     */
+    private async getToolNamePatterns(): Promise<Array<{
+        pattern: string
+        keywords: string[]
+        confidence: number
+        usage_count: number
+    }>> {
+        try {
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) return this.getStaticPatterns()
+
+            try {
+                // 从数据库获取学习到的模式
+                const result = await client.query(`
+                    SELECT 
+                        pattern,
+                        keywords,
+                        confidence,
+                        usage_count
+                    FROM tool_name_patterns 
+                    WHERE confidence > 0.3 
+                    ORDER BY usage_count DESC, confidence DESC
+                `)
+
+                if (result.rows.length > 0) {
+                    return result.rows.map(row => ({
+                        pattern: row.pattern,
+                        keywords: row.keywords,
+                        confidence: parseFloat(row.confidence),
+                        usage_count: parseInt(row.usage_count)
+                    }))
+                }
+
+                // 如果数据库中没有模式，创建初始模式
+                await this.initializeToolPatterns()
+                return this.getStaticPatterns()
+
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.warn('获取工具模式失败，使用静态模式:', error)
+            return this.getStaticPatterns()
+        }
+    }
+
+    /**
+     * 获取静态模式（回退方案）
+     */
+    private getStaticPatterns(): Array<{
+        pattern: string
+        keywords: string[]
+        confidence: number
+        usage_count: number
+    }> {
+        return [
+            {
+                pattern: 'solve_*',
+                keywords: ['解决', '求解', '解', 'solve', '问题', 'problem'],
+                confidence: 0.9,
+                usage_count: 100
+            },
+            {
+                pattern: 'run_*',
+                keywords: ['运行', '执行', '跑', 'run', 'execute'],
+                confidence: 0.9,
+                usage_count: 80
+            },
+            {
+                pattern: '*_queens',
+                keywords: ['皇后问题', 'n皇后', '八皇后', '8皇后', 'queens problem', '皇后', 'queen', 'queens'],
+                confidence: 0.95,
+                usage_count: 60
+            },
+            {
+                pattern: '*_sudoku',
+                keywords: ['数独', 'sudoku', '解数独', 'solve sudoku'],
+                confidence: 0.95,
+                usage_count: 40
+            },
+            {
+                pattern: '*_example*',
+                keywords: ['示例', '演示', 'demo', '例子', '运行示例', 'run example'],
+                confidence: 0.85,
+                usage_count: 70
+            },
+            {
+                pattern: 'install*',
+                keywords: ['安装', 'install', '安装包', 'package', '包管理'],
+                confidence: 0.9,
+                usage_count: 50
+            },
+            {
+                pattern: '*_optimization*',
+                keywords: ['优化', 'optimization', '最优化', 'optimize'],
+                confidence: 0.85,
+                usage_count: 30
+            },
+            {
+                pattern: '*_lp*',
+                keywords: ['线性规划', 'linear programming', 'lp', '规划', 'programming'],
+                confidence: 0.8,
+                usage_count: 25
+            }
+        ]
+    }
+
+    /**
+     * 检查工具名称是否匹配模式
+     */
+    private matchesPattern(toolName: string, pattern: { pattern: string }): boolean {
+        const regex = new RegExp(
+            '^' + pattern.pattern.replace(/\*/g, '.*') + '$',
+            'i'
+        )
+        return regex.test(toolName)
+    }
+
+    /**
+     * 从模式生成关键词
+     */
+    private async generateKeywordsFromPattern(toolName: string, pattern: {
+        pattern: string
+        keywords: string[]
+        confidence: number
+    }): Promise<string[]> {
+        const keywords = [...pattern.keywords]
+
+        // 基于工具名称的特定部分生成额外关键词
+        if (pattern.pattern.includes('*')) {
+            const wildcardParts = this.extractWildcardParts(toolName, pattern.pattern)
+            for (const part of wildcardParts) {
+                if (part.length > 2) {
+                    keywords.push(part)
+                    // 添加变体
+                    keywords.push(part.replace(/_/g, ' '))
+                    keywords.push(part.replace(/_/g, ''))
+                }
+            }
+        }
+
+        return keywords
+    }
+
+    /**
+     * 提取通配符部分
+     */
+    private extractWildcardParts(toolName: string, pattern: string): string[] {
+        const parts: string[] = []
+
+        // 将模式转换为正则表达式，捕获通配符部分
+        const regexPattern = pattern.replace(/\*/g, '(.*?)')
+        const regex = new RegExp('^' + regexPattern + '$', 'i')
+        const match = toolName.match(regex)
+
+        if (match) {
+            // 跳过第一个元素（完整匹配），获取捕获组
+            for (let i = 1; i < match.length; i++) {
+                if (match[i] && match[i].length > 0) {
+                    parts.push(match[i])
+                }
+            }
+        }
+
+        return parts
+    }
+
+    /**
+     * 识别描述中的模式
+     */
+    private async identifyDescriptionPatterns(description: string): Promise<string[]> {
+        const patterns: string[] = []
+        const descLower = description.toLowerCase()
+
+        // 数学/算法模式
+        if (descLower.includes('optimization') || descLower.includes('optimize')) {
+            patterns.push('optimization')
+        }
+        if (descLower.includes('linear programming') || descLower.includes('lp')) {
+            patterns.push('linear_programming')
+        }
+        if (descLower.includes('constraint') || descLower.includes('csp')) {
+            patterns.push('constraint_satisfaction')
+        }
+        if (descLower.includes('game') || descLower.includes('minimax')) {
+            patterns.push('game_theory')
+        }
+        if (descLower.includes('graph') || descLower.includes('coloring')) {
+            patterns.push('graph_theory')
+        }
+
+        return patterns
+    }
+
+    /**
+     * 从描述模式生成关键词
+     */
+    private async generateKeywordsFromDescriptionPattern(pattern: string): Promise<string[]> {
+        const patternKeywords: Record<string, string[]> = {
+            'optimization': ['优化', '最优化', 'optimization', 'optimize', '最优解'],
+            'linear_programming': ['线性规划', 'linear programming', 'lp', '规划问题'],
+            'constraint_satisfaction': ['约束满足', 'constraint', 'csp', '约束问题'],
+            'game_theory': ['博弈论', 'game theory', 'minimax', '游戏', '对弈'],
+            'graph_theory': ['图论', 'graph theory', '图着色', 'coloring', '图算法']
+        }
+
+        return patternKeywords[pattern] || []
+    }
+
+    /**
+     * 添加静态模式关键词（回退方案）
+     */
+    private addStaticPatternKeywords(name: string, description: string, keywords: Set<string>): void {
+        // 特定领域的关键词 - 扩展版本
         if (name.includes('queens') || name.includes('n_queens')) {
-            keywords.add('皇后问题')
-            keywords.add('n皇后')
-            keywords.add('八皇后')
-            keywords.add('8皇后')
-            keywords.add('queens problem')
-            keywords.add('皇后')
-            keywords.add('queen')
-            keywords.add('queens')
-            keywords.add('n queens')
-            keywords.add('solve_n_queens')
+            ['皇后问题', 'n皇后', '八皇后', '8皇后', 'queens problem', '皇后', 'queen', 'queens', 'n queens', 'solve_n_queens'].forEach(k => keywords.add(k))
         }
 
         if (name.includes('sudoku')) {
-            keywords.add('数独')
-            keywords.add('sudoku')
-            keywords.add('解数独')
-            keywords.add('solve sudoku')
+            ['数独', 'sudoku', '解数独', 'solve sudoku'].forEach(k => keywords.add(k))
         }
 
         if (name.includes('example')) {
-            keywords.add('示例')
-            keywords.add('演示')
-            keywords.add('demo')
-            keywords.add('例子')
-            keywords.add('运行示例')
-            keywords.add('run example')
+            ['示例', '演示', 'demo', '例子', '运行示例', 'run example'].forEach(k => keywords.add(k))
         }
 
         // 添加动作关键词 - 扩展版本
         if (name.includes('solve')) {
-            keywords.add('解决')
-            keywords.add('求解')
-            keywords.add('解')
-            keywords.add('solve')
-            keywords.add('问题')
-            keywords.add('problem')
+            ['解决', '求解', '解', 'solve', '问题', 'problem'].forEach(k => keywords.add(k))
         }
 
         if (name.includes('run')) {
-            keywords.add('运行')
-            keywords.add('执行')
-            keywords.add('跑')
-            keywords.add('run')
-            keywords.add('execute')
+            ['运行', '执行', '跑', 'run', 'execute'].forEach(k => keywords.add(k))
         }
 
-        // 添加更多特定工具的关键词
+        if (name.includes('install')) {
+            ['安装', 'install', '安装包', 'package'].forEach(k => keywords.add(k))
+        }
+    }
+
+    /**
+     * 添加从历史使用中学习的关键词
+     */
+    private async addLearnedKeywords(toolName: string, keywords: Set<string>): Promise<void> {
         try {
-            const toolSpecificKeywords = await this.getToolSpecificKeywords(name)
-            toolSpecificKeywords.forEach(keyword => keywords.add(keyword))
-        } catch (error) {
-            console.warn(`获取工具 ${name} 的特定关键词失败:`, error)
-        }
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) return
 
-        return Array.from(keywords)
+            try {
+                // 从工具使用统计中学习常用的用户输入模式
+                const result = await client.query(`
+                    SELECT user_input, COUNT(*) as usage_count
+                    FROM tool_usage_stats 
+                    WHERE tool_name = $1 AND success = true
+                    GROUP BY user_input
+                    HAVING COUNT(*) >= 2
+                    ORDER BY usage_count DESC
+                    LIMIT 10
+                `, [toolName])
+
+                for (const row of result.rows) {
+                    const userInput = row.user_input.toLowerCase()
+                    // 提取用户输入中的关键词
+                    const inputWords = userInput.split(/\s+/).filter((word: string) => word.length > 2)
+                    inputWords.forEach((word: string) => keywords.add(word))
+                }
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.warn(`获取工具 ${toolName} 的学习关键词失败:`, error)
+        }
+    }
+
+    /**
+     * 添加语义相似关键词（使用pgvector）
+     */
+    private async addSemanticKeywords(toolName: string, description: string, keywords: Set<string>): Promise<void> {
+        try {
+            // 检查是否启用了向量搜索
+            const { getEmbeddingService } = await import('./embedding-service')
+            const embeddingService = getEmbeddingService()
+
+            // 为工具描述生成嵌入向量
+            const embedding = await embeddingService.generateEmbedding(description)
+
+            // 查找语义相似的工具和关键词
+            const similarKeywords = await this.findSemanticallySimilarKeywords(embedding)
+            similarKeywords.forEach(keyword => keywords.add(keyword))
+
+        } catch (error) {
+            console.warn(`为工具 ${toolName} 生成语义关键词失败:`, error)
+        }
+    }
+
+    /**
+     * 查找语义相似的关键词
+     */
+    private async findSemanticallySimilarKeywords(embedding: number[]): Promise<string[]> {
+        try {
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) return []
+
+            try {
+                // 使用pgvector查找相似的关键词
+                const result = await client.query(`
+                    SELECT keyword, 1 - (embedding <=> $1) as similarity
+                    FROM keyword_embeddings
+                    WHERE 1 - (embedding <=> $1) > 0.7
+                    ORDER BY similarity DESC
+                    LIMIT 5
+                `, [JSON.stringify(embedding)])
+
+                return result.rows.map(row => row.keyword)
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.warn('语义关键词查找失败:', error)
+            return []
+        }
+    }
+
+    /**
+     * 初始化工具模式表
+     */
+    private async initializeToolPatterns(): Promise<void> {
+        try {
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) return
+
+            try {
+                // 创建工具名称模式表
+                await client.query(`
+                    CREATE TABLE IF NOT EXISTS tool_name_patterns (
+                        id SERIAL PRIMARY KEY,
+                        pattern VARCHAR(255) NOT NULL UNIQUE,
+                        keywords TEXT[] NOT NULL,
+                        confidence FLOAT DEFAULT 0.5,
+                        usage_count INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                `)
+
+                // 插入初始模式
+                const staticPatterns = this.getStaticPatterns()
+                for (const pattern of staticPatterns) {
+                    await client.query(`
+                        INSERT INTO tool_name_patterns (pattern, keywords, confidence, usage_count)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (pattern) DO UPDATE SET
+                            keywords = EXCLUDED.keywords,
+                            confidence = EXCLUDED.confidence,
+                            usage_count = EXCLUDED.usage_count,
+                            updated_at = CURRENT_TIMESTAMP
+                    `, [pattern.pattern, pattern.keywords, pattern.confidence, pattern.usage_count])
+                }
+
+                console.log('工具模式表初始化完成')
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.error('初始化工具模式表失败:', error)
+        }
     }
 
     /**
@@ -368,7 +733,7 @@ export class ToolMetadataService {
     private getFallbackKeywords(toolName: string): string[] {
         // 基于工具名称生成基础关键词
         const keywords: string[] = [toolName]
-        
+
         // 添加工具名称的变体
         if (toolName.includes('_')) {
             const parts = toolName.split('_')
@@ -432,8 +797,8 @@ export class ToolMetadataService {
      * 动态生成参数映射
      */
     private async generateDynamicParameterMappings(
-        toolName: string, 
-        validParameters: string[], 
+        toolName: string,
+        validParameters: string[],
         mappings: Record<string, string>
     ): Promise<void> {
         try {
@@ -471,8 +836,8 @@ export class ToolMetadataService {
      * 生成基础参数映射（回退方案）
      */
     private generateBasicParameterMappings(
-        toolName: string, 
-        validParameters: string[], 
+        toolName: string,
+        validParameters: string[],
         mappings: Record<string, string>
     ): void {
         // 基于工具类型生成基础映射
@@ -489,13 +854,13 @@ export class ToolMetadataService {
         // 为其他工具生成通用映射
         validParameters.forEach(param => {
             const paramLower = param.toLowerCase()
-            
+
             // 添加简化映射
             if (paramLower.includes('_')) {
                 const simplified = paramLower.replace(/_/g, '')
                 mappings[simplified] = param
             }
-            
+
             // 添加部分匹配映射
             const words = paramLower.split('_')
             words.forEach(word => {
@@ -643,7 +1008,7 @@ export class ToolMetadataService {
      */
     async ensureKeywordMappingsExist(): Promise<void> {
         console.log('验证关键词映射是否存在...')
-        
+
         const dbService = getDatabaseService()
         const client = await dbService.getClient()
         if (!client) return
@@ -667,7 +1032,7 @@ export class ToolMetadataService {
                         [toolName]
                     )
                     const toolMappingCount = parseInt(toolResult.rows[0].count)
-                    
+
                     if (toolMappingCount === 0) {
                         console.log(`工具 ${toolName} 缺少关键词映射，创建中...`)
                         await this.createKeywordMappingsForTool(toolName)
@@ -706,7 +1071,7 @@ export class ToolMetadataService {
      */
     private async createKeywordMappingsForTool(toolName: string, description?: string): Promise<void> {
         const keywords = await this.getToolSpecificKeywords(toolName)
-        
+
         // 如果有描述，也从描述中提取关键词
         if (description) {
             const extractedKeywords = await this.extractKeywords(toolName, description)
@@ -759,14 +1124,14 @@ export class ToolMetadataService {
 
             // 改进分词处理用户输入，支持中文
             const inputWords = []
-            
+
             // 添加整个输入
             inputWords.push(inputLower)
-            
+
             // 英文分词
             const englishWords = inputLower.split(/\s+/).filter(word => word.length > 1)
             inputWords.push(...englishWords)
-            
+
             // 动态中文关键词提取 - 从数据库获取常用中文关键词
             try {
                 const dbService = getDatabaseService()
@@ -780,7 +1145,7 @@ export class ToolMetadataService {
                             WHERE keyword ~ '[\\u4e00-\\u9fff]'
                             AND LENGTH(keyword) <= 10
                         `)
-                        
+
                         const chineseKeywords = chineseKeywordsResult.rows.map(row => row.keyword)
                         chineseKeywords.forEach(keyword => {
                             if (inputLower.includes(keyword)) {
@@ -801,13 +1166,13 @@ export class ToolMetadataService {
                     }
                 })
             }
-            
+
             // 数字+中文组合
             const numberChineseMatches = inputLower.match(/\d+[^\d\s\w]+/g)
             if (numberChineseMatches) {
                 inputWords.push(...numberChineseMatches)
             }
-            
+
             // 去重
             const uniqueWords = [...new Set(inputWords)]
 
