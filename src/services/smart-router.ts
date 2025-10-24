@@ -497,6 +497,8 @@ export class SmartRouter {
         return this.formatNQueensResponse(result)
       case 'solve_sudoku':
         return this.formatSudokuResponse(result)
+      case 'solve_24_point_game':
+        return this.format24PointGameResponse(result)
       default:
         return null
     }
@@ -558,12 +560,36 @@ export class SmartRouter {
   }
 
   /**
+   * 格式化24点游戏响应
+   */
+  private format24PointGameResponse(result: any): string {
+    if (result.success && result.expression) {
+      const expression = result.expression
+      
+      // 验证表达式是否等于24
+      try {
+        const value = eval(expression)
+        const isCorrect = Math.abs(value - 24) < 0.0001
+        
+        return `✅ **找到解决方案!**\n\n**表达式:** \`${expression}\`\n**计算结果:** ${value}${isCorrect ? ' ✓' : ' ❌'}\n\n${isCorrect ? '恭喜！这个表达式正确地得到了24。' : '注意：这个表达式的结果不等于24，可能存在错误。'}`
+      } catch (error) {
+        return `✅ **找到表达式:** \`${expression}\`\n\n请验证这个表达式是否正确计算出24。`
+      }
+    } else if (result.error) {
+      return `❌ **求解失败:** ${result.error}`
+    } else {
+      return `❌ **无解**\n\n无法用给定的数字通过四则运算得到24。`
+    }
+  }
+
+  /**
    * 为结果添加上下文信息
    */
   private addContextToResult(toolName: string, result: string, params: Record<string, any>): string {
     const contextMap: Record<string, string> = {
       'solve_n_queens': `🔢 **N皇后问题求解** (N=${params.n || 8})\n\n${result}`,
       'solve_sudoku': `🧩 **数独求解结果**\n\n${result}`,
+      'solve_24_point_game': `🎯 **24点游戏求解** (数字: ${params.numbers ? params.numbers.join(', ') : '未知'})\n\n${result}`,
       'run_example': `🚀 **${this.getExampleDisplayName(params.example_name || 'basic')}示例运行**\n\n${result}`,
       'echo': `📢 **回显结果**\n\n${result}`,
       'install': `📦 **包安装结果**\n\n${result}`,

@@ -196,6 +196,28 @@ export class MCPIntentRecognizer {
    * 提取数字参数
    */
   private extractNumberParameter(input: string, context: string, defaultValue: number): number {
+    if (context === 'queens') {
+      // 对于N皇后问题，优先提取棋盘大小
+      // 匹配 "6×6"、"6x6"、"6*6" 等格式
+      const boardSizeMatch = input.match(/(\d+)\s*[×x*]\s*\d+/i)
+      if (boardSizeMatch) {
+        return parseInt(boardSizeMatch[1])
+      }
+      
+      // 匹配 "6个皇后"、"6 queens" 等格式
+      const queensCountMatch = input.match(/(\d+)\s*(?:个\s*)?(?:queens?|皇后)/i)
+      if (queensCountMatch) {
+        return parseInt(queensCountMatch[1])
+      }
+      
+      // 匹配棋盘描述 "6×6的棋盘"
+      const boardDescMatch = input.match(/(\d+)\s*[×x*]\s*\d+\s*(?:的\s*)?(?:棋盘|board)/i)
+      if (boardDescMatch) {
+        return parseInt(boardDescMatch[1])
+      }
+    }
+    
+    // 通用数字匹配
     const numberMatch = input.match(new RegExp(`(\\d+)\\s*(?:${context}|皇后)`, 'i'))
     return numberMatch ? parseInt(numberMatch[1]) : defaultValue
   }

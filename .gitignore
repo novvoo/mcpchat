@@ -45,3 +45,5 @@ debug—*.js
 */debug—*.js
 test—*.js
 */test—*.js
+check—*.js
+*/check—*.js
