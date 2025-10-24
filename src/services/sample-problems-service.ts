@@ -250,7 +250,7 @@ export class SampleProblemsService {
       for (const [serverName, serverInfo] of Object.entries(servers)) {
         if (serverInfo.status === 'connected' && serverInfo.tools.length > 0) {
           for (const tool of serverInfo.tools) {
-            const problem = this.generateProblemFromTool(tool, serverName)
+            const problem = await this.generateProblemFromTool(tool, serverName)
             if (problem) {
               problems.push(problem)
             }
@@ -266,109 +266,203 @@ export class SampleProblemsService {
   }
 
   /**
-   * 根据MCP工具生成样例问题
+   * 根据MCP工具生成样例问题 - 使用模板系统
    */
-  private generateProblemFromTool(tool: any, serverName: string): SampleProblem | null {
+  private async generateProblemFromTool(tool: any, serverName: string): Promise<SampleProblem | null> {
+    try {
+      // 首先尝试从数据库获取问题模板
+      const template = await this.getProblemTemplate(tool.name)
+      if (template) {
+        return this.generateFromTemplate(template, tool, serverName)
+      }
+
+      // 如果没有模板，使用动态生成
+      return this.generateDynamicProblem(tool, serverName)
+    } catch (error) {
+      console.error(`生成工具 ${tool.name} 的样例问题失败:`, error)
+      return this.generateFallbackProblem(tool, serverName)
+    }
+  }
+
+  /**
+   * 从数据库获取问题模板
+   */
+  private async getProblemTemplate(toolName: string): Promise<any | null> {
+    try {
+      const dbService = getDatabaseService()
+      const client = await dbService.getClient()
+      if (!client) return null
+
+      try {
+        const result = await client.query(`
+          SELECT template_data 
+          FROM problem_templates 
+          WHERE tool_name = $1 AND active = true
+          ORDER BY priority DESC
+          LIMIT 1
+        `, [toolName])
+
+        if (result.rows.length > 0) {
+          return result.rows[0].template_data
+        }
+        return null
+      } finally {
+        client.release()
+      }
+    } catch (error) {
+      console.warn(`获取工具 ${toolName} 的问题模板失败:`, error)
+      return null
+    }
+  }
+
+  /**
+   * 根据模板生成问题
+   */
+  private generateFromTemplate(template: any, tool: any, serverName: string): SampleProblem {
     const toolName = tool.name
-    const description = tool.description || `使用${toolName}工具处理问题`
     
-    switch (toolName) {
-      case 'solve_n_queens':
-        return {
-          id: `mcp-${serverName}-n-queens-8`,
-          category: 'algorithm',
-          title: '8皇后问题',
-          title_en: '8 Queens Problem',
-          description: '在8×8的国际象棋棋盘上放置8个皇后，使得它们不能相互攻击',
-          description_en: 'Place 8 queens on an 8×8 chessboard so that no two queens attack each other',
-          problem_type: 'n_queens',
-          difficulty: 'medium',
-          parameters: { n: 8, board_size: 8 },
-          expected_solution: {
-            type: 'positions',
-            description: '皇后的位置坐标'
-          },
-          keywords: ['皇后', '8皇后', 'queens', 'n-queens', 'chess', 'algorithm'],
-          tool_name: toolName,
-          created_at: new Date().toISOString(),
-          generation_source: 'mcp'
-        }
-        
-      case 'solve_sudoku':
-        return {
-          id: `mcp-${serverName}-sudoku-easy`,
-          category: 'puzzle',
-          title: '数独求解',
-          title_en: 'Sudoku Solver',
-          description: '解决9×9数独谜题',
-          description_en: 'Solve 9×9 Sudoku puzzle',
-          problem_type: 'sudoku',
-          difficulty: 'easy',
-          parameters: {
-            puzzle: [
-              [5,3,0,0,7,0,0,0,0],
-              [6,0,0,1,9,5,0,0,0],
-              [0,9,8,0,0,0,0,6,0],
-              [8,0,0,0,6,0,0,0,3],
-              [4,0,0,8,0,3,0,0,1],
-              [7,0,0,0,2,0,0,0,6],
-              [0,6,0,0,0,0,2,8,0],
-              [0,0,0,4,1,9,0,0,5],
-              [0,0,0,0,8,0,0,7,9]
-            ]
-          },
-          expected_solution: {
-            type: 'grid',
-            description: '完整的数独解答'
-          },
-          keywords: ['数独', 'sudoku', 'puzzle', 'grid', '9x9'],
-          tool_name: toolName,
-          created_at: new Date().toISOString(),
-          generation_source: 'mcp'
-        }
-        
-      case 'run_example':
-        return {
-          id: `mcp-${serverName}-run-example`,
-          category: 'demo',
-          title: '运行示例',
-          title_en: 'Run Example',
-          description: '运行一个示例程序',
-          description_en: 'Run an example program',
-          problem_type: 'example',
-          difficulty: 'easy',
-          parameters: { example_type: 'basic' },
-          expected_solution: {
-            type: 'output',
-            description: '示例程序的输出结果'
-          },
-          keywords: ['示例', 'example', 'demo', 'run'],
-          tool_name: toolName,
-          created_at: new Date().toISOString(),
-          generation_source: 'mcp'
-        }
-        
-      default:
-        // 为其他工具生成通用样例问题
-        return {
-          id: `mcp-${serverName}-${toolName}`,
-          category: 'general',
-          title: tool.description || toolName,
-          title_en: tool.description || toolName,
-          description: description,
-          description_en: description,
-          problem_type: 'general',
-          difficulty: 'medium',
-          parameters: {},
-          expected_solution: {
-            type: 'result',
-            description: '工具执行结果'
-          },
-          keywords: [toolName, 'tool', 'mcp'],
-          tool_name: toolName,
-          created_at: new Date().toISOString(),
-          generation_source: 'mcp'
-        }
+    return {
+      id: `mcp-${serverName}-${toolName}-${Date.now()}`,
+      category: template.category || 'general',
+      title: template.title || tool.description || toolName,
+      title_en: template.title_en || tool.description || toolName,
+      description: template.description || `使用${toolName}工具处理问题`,
+      description_en: template.description_en || `Use ${toolName} tool to solve problems`,
+      problem_type: template.problem_type || 'general',
+      difficulty: template.difficulty || 'medium',
+      parameters: template.parameters || {},
+      expected_solution: template.expected_solution || {
+        type: 'result',
+        description: '工具执行结果'
+      },
+      keywords: template.keywords || [toolName, 'tool', 'mcp'],
+      tool_name: toolName,
+      created_at: new Date().toISOString(),
+      generation_source: 'template'
+    }
+  }
+
+  /**
+   * 动态生成问题（基于工具元数据）
+   */
+  private async generateDynamicProblem(tool: any, serverName: string): Promise<SampleProblem> {
+    const toolName = tool.name
+    
+    // 从工具元数据服务获取关键词
+    let keywords = [toolName, 'tool', 'mcp']
+    try {
+      const { getToolMetadataService } = await import('./tool-metadata-service')
+      const metadataService = getToolMetadataService()
+      const suggestions = await metadataService.getToolSuggestions(toolName)
+      
+      if (suggestions.length > 0) {
+        keywords = [...new Set([...keywords, ...suggestions[0].keywords])]
+      }
+    } catch (error) {
+      console.warn('获取工具关键词失败:', error)
+    }
+
+    // 基于工具名称推断类别和难度
+    const category = this.inferCategory(toolName)
+    const difficulty = this.inferDifficulty(toolName)
+    const problemType = this.inferProblemType(toolName)
+
+    return {
+      id: `mcp-${serverName}-${toolName}-${Date.now()}`,
+      category,
+      title: tool.description || toolName,
+      title_en: tool.description || toolName,
+      description: tool.description || `使用${toolName}工具处理问题`,
+      description_en: tool.description || `Use ${toolName} tool to solve problems`,
+      problem_type: problemType,
+      difficulty,
+      parameters: this.generateDefaultParameters(toolName),
+      expected_solution: {
+        type: 'result',
+        description: '工具执行结果'
+      },
+      keywords,
+      tool_name: toolName,
+      created_at: new Date().toISOString(),
+      generation_source: 'mcp'
+    }
+  }
+
+  /**
+   * 推断工具类别
+   */
+  private inferCategory(toolName: string): string {
+    if (toolName.includes('solve')) return 'algorithm'
+    if (toolName.includes('run') || toolName.includes('example')) return 'demo'
+    if (toolName.includes('echo') || toolName.includes('info')) return 'utility'
+    if (toolName.includes('install')) return 'system'
+    if (toolName.includes('optimization')) return 'optimization'
+    if (toolName.includes('game')) return 'game'
+    return 'general'
+  }
+
+  /**
+   * 推断问题难度
+   */
+  private inferDifficulty(toolName: string): 'easy' | 'medium' | 'hard' {
+    if (toolName.includes('echo') || toolName.includes('info') || toolName.includes('run_example')) {
+      return 'easy'
+    }
+    if (toolName.includes('optimization') || toolName.includes('minimax')) {
+      return 'hard'
+    }
+    return 'medium'
+  }
+
+  /**
+   * 推断问题类型
+   */
+  private inferProblemType(toolName: string): string {
+    if (toolName.includes('queens')) return 'n_queens'
+    if (toolName.includes('sudoku')) return 'sudoku'
+    if (toolName.includes('example')) return 'example'
+    if (toolName.includes('optimization')) return 'optimization'
+    if (toolName.includes('game')) return 'game'
+    return 'general'
+  }
+
+  /**
+   * 生成默认参数
+   */
+  private generateDefaultParameters(toolName: string): Record<string, any> {
+    if (toolName.includes('queens')) {
+      return { n: 8 }
+    }
+    if (toolName.includes('example')) {
+      return { example_type: 'basic' }
+    }
+    return {}
+  }
+
+  /**
+   * 生成回退问题（最简单的实现）
+   */
+  private generateFallbackProblem(tool: any, serverName: string): SampleProblem {
+    const toolName = tool.name
+    
+    return {
+      id: `mcp-${serverName}-${toolName}-fallback`,
+      category: 'general',
+      title: tool.description || toolName,
+      title_en: tool.description || toolName,
+      description: tool.description || `使用${toolName}工具处理问题`,
+      description_en: tool.description || `Use ${toolName} tool to solve problems`,
+      problem_type: 'general',
+      difficulty: 'medium',
+      parameters: {},
+      expected_solution: {
+        type: 'result',
+        description: '工具执行结果'
+      },
+      keywords: [toolName, 'tool', 'mcp'],
+      tool_name: toolName,
+      created_at: new Date().toISOString(),
+      generation_source: 'manual'
     }
   }
 

@@ -148,7 +148,7 @@ export class ToolMetadataService {
     /**
      * 更新单个工具的元数据
      */
-    private async updateToolMetadata(tool: Tool): Promise<void> {
+    async updateToolMetadata(tool: Tool): Promise<void> {
         const dbService = getDatabaseService()
         const client = await dbService.getClient()
         if (!client) return
@@ -212,13 +212,13 @@ export class ToolMetadataService {
         category: string
     }> {
         // 从工具名称和描述中提取关键词
-        const keywords = this.extractKeywords(tool.name, tool.description)
+        const keywords = await this.extractKeywords(tool.name, tool.description)
 
         // 从输入schema中提取有效参数
         const validParameters = this.extractValidParameters(tool.inputSchema)
 
         // 生成参数映射
-        const parameterMappings = this.generateParameterMappings(tool.name, validParameters)
+        const parameterMappings = await this.generateParameterMappings(tool.name, validParameters)
 
         // 从描述中提取示例
         const examples = this.extractExamples(tool.description)
@@ -239,7 +239,7 @@ export class ToolMetadataService {
     /**
      * 从工具名称和描述中提取关键词
      */
-    private extractKeywords(name: string, description: string): string[] {
+    private async extractKeywords(name: string, description: string): Promise<string[]> {
         const keywords = new Set<string>()
 
         // 从工具名称提取
@@ -311,74 +311,199 @@ export class ToolMetadataService {
         }
 
         // 添加更多特定工具的关键词
-        const toolSpecificKeywords = this.getToolSpecificKeywords(name)
-        toolSpecificKeywords.forEach(keyword => keywords.add(keyword))
+        try {
+            const toolSpecificKeywords = await this.getToolSpecificKeywords(name)
+            toolSpecificKeywords.forEach(keyword => keywords.add(keyword))
+        } catch (error) {
+            console.warn(`获取工具 ${name} 的特定关键词失败:`, error)
+        }
 
         return Array.from(keywords)
     }
 
     /**
-     * 获取工具特定的关键词
+     * 获取工具特定的关键词 - 从数据库动态获取
      */
-    private getToolSpecificKeywords(toolName: string): string[] {
-        const specificMappings: Record<string, string[]> = {
-            'solve_n_queens': [
-                '皇后问题', '皇后', '8皇后', 'n皇后', '八皇后', 'queens', 'queen', 
-                'n queens', 'queens problem', 'solve_n_queens', 'solve', '解决', 
-                '求解', '解', 'problem', '问题'
-            ],
-            'solve_sudoku': [
-                '数独', 'sudoku', '解数独', 'solve sudoku', '数独游戏', 'puzzle'
-            ],
-            'run_example': [
-                '示例', '演示', 'demo', '例子', '运行示例', 'run example', 'example', 
-                '测试', 'test', '样例'
-            ],
-            'solve_graph_coloring': [
-                '图着色', '图染色', 'graph coloring', '着色问题', 'coloring', '图论'
-            ],
-            'solve_map_coloring': [
-                '地图着色', '地图染色', 'map coloring', '区域着色', '地图'
-            ],
-            'solve_lp': [
-                '线性规划', 'linear programming', 'lp', '优化', 'optimization'
-            ],
-            'solve_production_planning': [
-                '生产规划', '生产计划', 'production planning', '生产优化', '规划'
-            ],
-            'solve_minimax_game': [
-                '极小极大', 'minimax', '博弈', 'game', '游戏理论', 'game theory'
-            ],
-            'solve_minimax_decision': [
-                '极小极大决策', 'minimax decision', '决策', 'decision', '不确定性'
-            ],
-            'solve_24_point_game': [
-                '24点游戏', '24点', '24 point', '算24', '数字游戏'
-            ],
-            'solve_chicken_rabbit_problem': [
-                '鸡兔同笼', 'chicken rabbit', '鸡兔问题', '经典问题'
-            ],
-            'solve_scipy_portfolio_optimization': [
-                '投资组合优化', 'portfolio optimization', '投资组合', 'portfolio', '金融优化'
-            ],
-            'solve_scipy_statistical_fitting': [
-                '统计拟合', 'statistical fitting', '参数估计', '统计', 'statistical'
-            ],
-            'solve_scipy_facility_location': [
-                '设施选址', 'facility location', '选址问题', '设施布局', 'location'
-            ],
-            'info': [
-                '信息', '详情', 'info', 'information', '帮助', 'help'
-            ],
-            'install': [
-                '安装', 'install', '安装包', 'package', '部署', 'setup'
-            ],
-            'echo': [
-                '回显', '重复', 'echo', 'repeat', '输出', 'output'
-            ]
+    private async getToolSpecificKeywords(toolName: string): Promise<string[]> {
+        try {
+            // 从数据库获取该工具的关键词映射
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) {
+                return this.getFallbackKeywords(toolName)
+            }
+
+            try {
+                const result = await client.query(
+                    'SELECT keyword FROM tool_keyword_mappings WHERE tool_name = $1',
+                    [toolName]
+                )
+
+                if (result.rows.length > 0) {
+                    const keywords = result.rows.map(row => row.keyword)
+                    console.log(`从数据库获取工具 ${toolName} 的关键词: ${keywords.length} 个`)
+                    return keywords
+                }
+
+                // 如果数据库中没有，生成并存储基础关键词
+                const fallbackKeywords = this.getFallbackKeywords(toolName)
+                if (fallbackKeywords.length > 0) {
+                    console.log(`为工具 ${toolName} 生成并存储基础关键词`)
+                    await this.storeKeywordsToDatabase(toolName, fallbackKeywords)
+                }
+                return fallbackKeywords
+
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.warn(`从数据库获取工具 ${toolName} 关键词失败，使用回退方案:`, error)
+            return this.getFallbackKeywords(toolName)
+        }
+    }
+
+    /**
+     * 获取回退关键词（简化版本）
+     */
+    private getFallbackKeywords(toolName: string): string[] {
+        // 基于工具名称生成基础关键词
+        const keywords: string[] = [toolName]
+        
+        // 添加工具名称的变体
+        if (toolName.includes('_')) {
+            const parts = toolName.split('_')
+            keywords.push(...parts.filter(part => part.length > 2))
+            keywords.push(parts.join(' '))
         }
 
-        return specificMappings[toolName] || []
+        // 基于工具名称模式添加关键词
+        if (toolName.includes('solve')) {
+            keywords.push('解决', '求解', 'solve')
+        }
+        if (toolName.includes('run')) {
+            keywords.push('运行', '执行', 'run')
+        }
+        if (toolName.includes('queens')) {
+            keywords.push('皇后', 'queens', '皇后问题')
+        }
+        if (toolName.includes('sudoku')) {
+            keywords.push('数独', 'sudoku')
+        }
+        if (toolName.includes('example')) {
+            keywords.push('示例', 'example', 'demo')
+        }
+        if (toolName.includes('echo')) {
+            keywords.push('回显', 'echo')
+        }
+        if (toolName.includes('install')) {
+            keywords.push('安装', 'install')
+        }
+
+        return [...new Set(keywords)] // 去重
+    }
+
+    /**
+     * 将关键词存储到数据库
+     */
+    private async storeKeywordsToDatabase(toolName: string, keywords: string[]): Promise<void> {
+        try {
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) return
+
+            try {
+                for (const keyword of keywords) {
+                    await client.query(`
+                        INSERT INTO tool_keyword_mappings (tool_name, keyword, confidence, source)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (tool_name, keyword) DO NOTHING
+                    `, [toolName, keyword, 0.8, 'auto_generated'])
+                }
+                console.log(`为工具 ${toolName} 存储了 ${keywords.length} 个关键词到数据库`)
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.error(`存储关键词到数据库失败:`, error)
+        }
+    }
+
+    /**
+     * 动态生成参数映射
+     */
+    private async generateDynamicParameterMappings(
+        toolName: string, 
+        validParameters: string[], 
+        mappings: Record<string, string>
+    ): Promise<void> {
+        try {
+            // 从数据库获取现有的参数映射
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) return
+
+            try {
+                const existingMappings = await client.query(
+                    'SELECT user_input, mcp_parameter FROM tool_parameter_mappings WHERE tool_name = $1',
+                    [toolName]
+                )
+
+                // 使用现有映射
+                existingMappings.rows.forEach(row => {
+                    mappings[row.user_input] = row.mcp_parameter
+                })
+
+                // 如果没有现有映射，生成基础映射
+                if (existingMappings.rows.length === 0) {
+                    this.generateBasicParameterMappings(toolName, validParameters, mappings)
+                }
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.warn(`生成工具 ${toolName} 的动态参数映射失败:`, error)
+            // 回退到基础映射生成
+            this.generateBasicParameterMappings(toolName, validParameters, mappings)
+        }
+    }
+
+    /**
+     * 生成基础参数映射（回退方案）
+     */
+    private generateBasicParameterMappings(
+        toolName: string, 
+        validParameters: string[], 
+        mappings: Record<string, string>
+    ): void {
+        // 基于工具类型生成基础映射
+        if (toolName === 'run_example' && validParameters.length > 0) {
+            const defaultParam = validParameters.includes('lp') ? 'lp' : validParameters[0]
+            mappings['basic'] = defaultParam
+            mappings['simple'] = defaultParam
+            mappings['linear'] = validParameters.includes('lp') ? 'lp' : defaultParam
+            mappings['constraint'] = validParameters.includes('csp') ? 'csp' : defaultParam
+            mappings['queens'] = validParameters.includes('n_queens') ? 'n_queens' : defaultParam
+            mappings['optimization'] = validParameters.find(p => p.includes('optimization')) || defaultParam
+        }
+
+        // 为其他工具生成通用映射
+        validParameters.forEach(param => {
+            const paramLower = param.toLowerCase()
+            
+            // 添加简化映射
+            if (paramLower.includes('_')) {
+                const simplified = paramLower.replace(/_/g, '')
+                mappings[simplified] = param
+            }
+            
+            // 添加部分匹配映射
+            const words = paramLower.split('_')
+            words.forEach(word => {
+                if (word.length > 3) {
+                    mappings[word] = param
+                }
+            })
+        })
     }
 
     /**
@@ -407,17 +532,15 @@ export class ToolMetadataService {
     /**
      * 生成参数映射
      */
-    private generateParameterMappings(toolName: string, validParameters: string[]): Record<string, string> {
+    private async generateParameterMappings(toolName: string, validParameters: string[]): Promise<Record<string, string>> {
         const mappings: Record<string, string> = {}
 
-        // 为 run_example 工具生成特殊映射
-        if (toolName === 'run_example') {
-            mappings['basic'] = validParameters.includes('lp') ? 'lp' : validParameters[0] || 'basic'
-            mappings['simple'] = validParameters.includes('lp') ? 'lp' : validParameters[0] || 'basic'
-            mappings['linear'] = validParameters.includes('lp') ? 'lp' : validParameters[0] || 'basic'
-            mappings['constraint'] = validParameters.includes('csp') ? 'csp' : validParameters[0] || 'basic'
-            mappings['queens'] = validParameters.includes('n_queens') ? 'n_queens' : validParameters[0] || 'basic'
-            mappings['optimization'] = validParameters.find(p => p.includes('optimization')) || validParameters[0] || 'basic'
+        // 为特定工具生成参数映射 - 使用动态逻辑而不是硬编码
+        try {
+            await this.generateDynamicParameterMappings(toolName, validParameters, mappings)
+        } catch (error) {
+            console.warn(`生成参数映射失败，使用基础映射:`, error)
+            this.generateBasicParameterMappings(toolName, validParameters, mappings)
         }
 
         // 为其他工具生成通用映射
@@ -582,11 +705,11 @@ export class ToolMetadataService {
      * 为特定工具创建关键词映射
      */
     private async createKeywordMappingsForTool(toolName: string, description?: string): Promise<void> {
-        const keywords = this.getToolSpecificKeywords(toolName)
+        const keywords = await this.getToolSpecificKeywords(toolName)
         
         // 如果有描述，也从描述中提取关键词
         if (description) {
-            const extractedKeywords = this.extractKeywords(toolName, description)
+            const extractedKeywords = await this.extractKeywords(toolName, description)
             keywords.push(...extractedKeywords)
         }
 
@@ -644,13 +767,40 @@ export class ToolMetadataService {
             const englishWords = inputLower.split(/\s+/).filter(word => word.length > 1)
             inputWords.push(...englishWords)
             
-            // 中文关键词提取
-            const chineseKeywords = ['解决', '皇后', '问题', '8皇后', '皇后问题', 'n皇后', '八皇后', '数独', '示例', '运行', '求解']
-            chineseKeywords.forEach(keyword => {
-                if (inputLower.includes(keyword)) {
-                    inputWords.push(keyword)
+            // 动态中文关键词提取 - 从数据库获取常用中文关键词
+            try {
+                const dbService = getDatabaseService()
+                const client = await dbService.getClient()
+                if (client) {
+                    try {
+                        // 获取所有中文关键词（包含中文字符的关键词）
+                        const chineseKeywordsResult = await client.query(`
+                            SELECT DISTINCT keyword 
+                            FROM tool_keyword_mappings 
+                            WHERE keyword ~ '[\\u4e00-\\u9fff]'
+                            AND LENGTH(keyword) <= 10
+                        `)
+                        
+                        const chineseKeywords = chineseKeywordsResult.rows.map(row => row.keyword)
+                        chineseKeywords.forEach(keyword => {
+                            if (inputLower.includes(keyword)) {
+                                inputWords.push(keyword)
+                            }
+                        })
+                    } finally {
+                        client.release()
+                    }
                 }
-            })
+            } catch (error) {
+                console.warn('获取中文关键词失败，使用基础关键词:', error)
+                // 回退到基础中文关键词
+                const basicChineseKeywords = ['解决', '皇后', '问题', '数独', '示例', '运行', '求解']
+                basicChineseKeywords.forEach(keyword => {
+                    if (inputLower.includes(keyword)) {
+                        inputWords.push(keyword)
+                    }
+                })
+            }
             
             // 数字+中文组合
             const numberChineseMatches = inputLower.match(/\d+[^\d\s\w]+/g)

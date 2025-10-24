@@ -120,7 +120,7 @@ export class MCPIntentRecognizer {
 
     // 选择最佳匹配并校准置信度
     const bestSuggestion = suggestions[0]
-    const calibratedConfidence = this.calibrateConfidence(bestSuggestion.toolName, bestSuggestion.confidence)
+    const calibratedConfidence = await this.calibrateConfidence(bestSuggestion.toolName, bestSuggestion.confidence)
     
     // 提取参数
     const parameters = await this.extractParameters(bestSuggestion.toolName, userInput)
@@ -334,27 +334,99 @@ export class MCPIntentRecognizer {
   /**
    * 校准置信度 - 根据工具的历史成功率调整置信度
    */
-  private calibrateConfidence(toolName: string, rawConfidence: number): number {
-    // 工具成功率映射 (可以从数据库或配置中获取)
-    const toolSuccessRates: Record<string, number> = {
-      'solve_n_queens': 0.95,      // N皇后问题通常很准确
-      'solve_sudoku': 0.90,        // 数独求解也很准确
-      'run_example': 0.85,         // 示例运行相对可靠
-      'echo': 0.98,                // Echo最简单最可靠
-      'info': 0.99,                // Info查询最可靠
-      'solve_24_point_game': 0.80, // 24点游戏稍微复杂
-      'solve_chicken_rabbit_problem': 0.88, // 鸡兔同笼问题较准确
-      'install': 0.75              // 安装操作可能有环境依赖
+  private async calibrateConfidence(toolName: string, rawConfidence: number): Promise<number> {
+    try {
+      // 从数据库获取工具的实际成功率
+      const successRate = await this.getToolSuccessRateFromDatabase(toolName)
+      
+      // 使用贝叶斯方法校准置信度
+      const calibratedConfidence = rawConfidence * successRate + (1 - successRate) * 0.1
+      
+      // 确保置信度在合理范围内
+      return Math.max(0.05, Math.min(0.98, calibratedConfidence))
+    } catch (error) {
+      console.warn(`获取工具 ${toolName} 成功率失败，使用默认值:`, error)
+      
+      // 回退到基础成功率估算
+      const defaultSuccessRate = this.getDefaultSuccessRate(toolName)
+      const calibratedConfidence = rawConfidence * defaultSuccessRate + (1 - defaultSuccessRate) * 0.1
+      
+      return Math.max(0.05, Math.min(0.98, calibratedConfidence))
     }
+  }
 
-    const successRate = toolSuccessRates[toolName] || 0.7 // 默认成功率70%
+  /**
+   * 从数据库获取工具的实际成功率
+   */
+  private async getToolSuccessRateFromDatabase(toolName: string): Promise<number> {
+    try {
+      const { getDatabaseService } = await import('./database')
+      const dbService = getDatabaseService()
+      const client = await dbService.getClient()
+      
+      if (!client) {
+        throw new Error('数据库连接不可用')
+      }
+
+      try {
+        // 查询最近的工具使用统计
+        const result = await client.query(`
+          SELECT 
+            COUNT(*) as total_uses,
+            COUNT(CASE WHEN success = true THEN 1 END) as successful_uses,
+            CASE 
+              WHEN COUNT(*) > 0 THEN 
+                CAST(COUNT(CASE WHEN success = true THEN 1 END) AS FLOAT) / COUNT(*)
+              ELSE 0.7
+            END as success_rate
+          FROM tool_usage_stats 
+          WHERE tool_name = $1 
+          AND created_at > NOW() - INTERVAL '30 days'
+        `, [toolName])
+
+        if (result.rows.length > 0) {
+          const stats = result.rows[0]
+          const totalUses = parseInt(stats.total_uses)
+          const successRate = parseFloat(stats.success_rate)
+          
+          console.log(`工具 ${toolName} 统计: ${stats.successful_uses}/${totalUses} 成功，成功率: ${(successRate * 100).toFixed(1)}%`)
+          
+          // 如果使用次数太少，混合默认成功率
+          if (totalUses < 5) {
+            const defaultRate = this.getDefaultSuccessRate(toolName)
+            const blendedRate = (successRate * totalUses + defaultRate * (5 - totalUses)) / 5
+            console.log(`使用次数较少，混合默认成功率: ${(blendedRate * 100).toFixed(1)}%`)
+            return blendedRate
+          }
+          
+          return successRate
+        }
+
+        // 没有统计数据，返回默认成功率
+        return this.getDefaultSuccessRate(toolName)
+      } finally {
+        client.release()
+      }
+    } catch (error) {
+      console.error(`从数据库获取工具 ${toolName} 成功率失败:`, error)
+      throw error
+    }
+  }
+
+  /**
+   * 获取默认成功率（回退方案）
+   */
+  private getDefaultSuccessRate(toolName: string): number {
+    // 基于工具类型的基础成功率估算
+    if (toolName.includes('echo')) return 0.98
+    if (toolName.includes('info')) return 0.99
+    if (toolName.includes('solve_n_queens')) return 0.95
+    if (toolName.includes('solve_sudoku')) return 0.90
+    if (toolName.includes('run_example')) return 0.85
+    if (toolName.includes('install')) return 0.75
     
-    // 使用贝叶斯方法校准置信度
-    // 校准后的置信度 = 原始置信度 * 成功率 + 调整因子
-    const calibratedConfidence = rawConfidence * successRate + (1 - successRate) * 0.1
-    
-    // 确保置信度在合理范围内
-    return Math.max(0.05, Math.min(0.98, calibratedConfidence))
+    // 默认成功率
+    return 0.7
   }
 
   /**

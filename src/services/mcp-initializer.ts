@@ -233,49 +233,93 @@ export class MCPInitializer {
   }
 
   /**
-   * 动态扩展关键词映射
+   * 动态扩展关键词映射 - 使用数据库驱动的方法
    */
   private async expandKeywordMappings(): Promise<void> {
     try {
-      const mcpToolsService = getMCPToolsService()
-      const tools = await mcpToolsService.getAvailableTools()
-      const intentRecognizer = getMCPIntentRecognizer()
+      console.log('开始动态扩展关键词映射...')
       
-      // 为每个工具动态生成关键词
-      for (const tool of tools) {
-        await this.generateKeywordsForTool(tool, intentRecognizer)
-      }
+      // 使用 ToolMetadataService 来刷新所有工具的元数据
+      const { getToolMetadataService } = await import('./tool-metadata-service')
+      const metadataService = getToolMetadataService()
       
-      console.log('动态关键词映射扩展完成')
+      // 确保服务已初始化
+      await metadataService.initialize()
+      
+      // 刷新所有工具的元数据（从MCP服务器获取并更新到数据库）
+      await metadataService.refreshToolMetadata()
+      
+      // 确保关键词映射存在
+      await metadataService.ensureKeywordMappingsExist()
+      
+      console.log('动态关键词映射扩展完成 - 所有工具元数据已更新到数据库')
     } catch (error) {
-      console.warn('动态关键词映射扩展失败:', error)
+      console.warn('动态关键词映射扩展失败，回退到基础方法:', error)
+      
+      // 回退到原有的逐个工具处理方法
+      await this.expandKeywordMappingsFallback()
     }
   }
 
   /**
-   * 为特定工具生成关键词
+   * 回退的关键词映射扩展方法
+   */
+  private async expandKeywordMappingsFallback(): Promise<void> {
+    try {
+      const mcpToolsService = getMCPToolsService()
+      const tools = await mcpToolsService.getAvailableTools()
+      
+      // 为每个工具动态生成关键词
+      for (const tool of tools) {
+        await this.generateKeywordsForTool(tool, null)
+      }
+      
+      console.log('回退关键词映射扩展完成')
+    } catch (error) {
+      console.warn('回退关键词映射扩展也失败:', error)
+    }
+  }
+
+  /**
+   * 为特定工具生成关键词 - 使用数据库驱动的方法
    */
   private async generateKeywordsForTool(tool: Tool, intentRecognizer: any): Promise<void> {
-    // 基于工具名称和描述生成关键词
-    const keywords: string[] = []
-    
-    // 从工具名称提取关键词
-    const nameKeywords = this.extractKeywordsFromName(tool.name)
-    keywords.push(...nameKeywords)
-    
-    // 从工具描述提取关键词
-    if (tool.description) {
-      const descKeywords = this.extractKeywordsFromDescription(tool.description)
-      keywords.push(...descKeywords)
+    try {
+      // 使用 ToolMetadataService 来处理工具元数据
+      const { getToolMetadataService } = await import('./tool-metadata-service')
+      const metadataService = getToolMetadataService()
+      
+      // 确保服务已初始化
+      await metadataService.initialize()
+      
+      // 让 ToolMetadataService 处理这个工具的元数据更新
+      // 这会自动提取关键词、参数映射等
+      await metadataService.updateToolMetadata(tool)
+      
+      console.log(`工具 ${tool.name} 的元数据已更新到数据库`)
+      
+    } catch (error) {
+      console.warn(`更新工具 ${tool.name} 的元数据失败:`, error)
+      
+      // 回退到基础关键词生成
+      const keywords: string[] = []
+      
+      // 从工具名称提取关键词
+      const nameKeywords = this.extractKeywordsFromName(tool.name)
+      keywords.push(...nameKeywords)
+      
+      // 从工具描述提取关键词
+      if (tool.description) {
+        const descKeywords = this.extractKeywordsFromDescription(tool.description)
+        keywords.push(...descKeywords)
+      }
+      
+      // 添加通用关键词
+      const genericKeywords = await this.getGenericKeywords(tool.name)
+      keywords.push(...genericKeywords)
+      
+      console.log(`为工具 ${tool.name} 生成基础关键词:`, keywords)
     }
-    
-    // 添加通用关键词
-    const genericKeywords = this.getGenericKeywords(tool.name)
-    keywords.push(...genericKeywords)
-    
-    // 这里可以扩展intentRecognizer来支持动态添加关键词
-    // 目前的实现是静态的，可以考虑重构为支持动态添加
-    console.log(`为工具 ${tool.name} 生成关键词:`, keywords)
   }
 
   /**
@@ -329,38 +373,55 @@ export class MCPInitializer {
   }
 
   /**
-   * 获取通用关键词
+   * 获取通用关键词 - 从数据库动态获取
    */
-  private getGenericKeywords(toolName: string): string[] {
-    const genericMappings: Record<string, string[]> = {
-      'solve': ['解决', '求解', '计算', 'solve', 'calculate'],
-      'run': ['运行', '执行', 'run', 'execute'],
-      'echo': ['回显', '重复', 'echo', 'repeat'],
-      'info': ['信息', '详情', 'info', 'information'],
-      'install': ['安装', 'install', 'setup'],
-      'queens': ['皇后', 'queens', '皇后问题'],
-      'sudoku': ['数独', 'sudoku'],
-      'graph': ['图', 'graph', '图论'],
-      'coloring': ['着色', 'coloring', '染色'],
-      'optimization': ['优化', 'optimization', '最优化'],
-      'portfolio': ['投资组合', 'portfolio'],
-      'statistical': ['统计', 'statistical', '统计学'],
-      'facility': ['设施', 'facility', '设施选址'],
-      'location': ['位置', 'location', '选址'],
-      'minimax': ['极小极大', 'minimax'],
-      'game': ['游戏', 'game', '博弈'],
-      'decision': ['决策', 'decision'],
-      'planning': ['规划', 'planning', '计划'],
-      'production': ['生产', 'production'],
-      'lp': ['线性规划', 'linear programming', 'lp'],
-      'scipy': ['科学计算', 'scipy', '科学']
+  private async getGenericKeywords(toolName: string): Promise<string[]> {
+    try {
+      // 尝试从数据库获取关键词映射
+      const { getToolMetadataService } = await import('./tool-metadata-service')
+      const metadataService = getToolMetadataService()
+      
+      // 从数据库查询现有的关键词映射
+      const suggestions = await metadataService.getToolSuggestions(toolName)
+      
+      if (suggestions.length > 0) {
+        // 合并所有匹配工具的关键词
+        const allKeywords = suggestions.flatMap(s => s.keywords)
+        return [...new Set(allKeywords)] // 去重
+      }
+      
+      // 如果数据库中没有，回退到基础关键词生成
+      return this.generateBasicKeywords(toolName)
+      
+    } catch (error) {
+      console.warn('从数据库获取关键词失败，使用基础生成:', error)
+      return this.generateBasicKeywords(toolName)
     }
-    
+  }
+
+  /**
+   * 生成基础关键词（回退方案）
+   */
+  private generateBasicKeywords(toolName: string): string[] {
     const keywords: string[] = []
+    const nameLower = toolName.toLowerCase()
     
-    for (const [key, values] of Object.entries(genericMappings)) {
-      if (toolName.toLowerCase().includes(key)) {
-        keywords.push(...values)
+    // 基于工具名称的简单模式匹配
+    const patterns = [
+      { pattern: 'solve', keywords: ['解决', '求解', 'solve'] },
+      { pattern: 'run', keywords: ['运行', '执行', 'run'] },
+      { pattern: 'echo', keywords: ['回显', 'echo'] },
+      { pattern: 'info', keywords: ['信息', 'info'] },
+      { pattern: 'install', keywords: ['安装', 'install'] },
+      { pattern: 'queens', keywords: ['皇后', 'queens'] },
+      { pattern: 'sudoku', keywords: ['数独', 'sudoku'] },
+      { pattern: 'optimization', keywords: ['优化', 'optimization'] },
+      { pattern: 'game', keywords: ['游戏', 'game'] }
+    ]
+    
+    for (const { pattern, keywords: patternKeywords } of patterns) {
+      if (nameLower.includes(pattern)) {
+        keywords.push(...patternKeywords)
       }
     }
     

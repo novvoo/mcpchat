@@ -10,36 +10,20 @@ export class SimpleIntentRecognizer {
   private static instance: SimpleIntentRecognizer
   private availableTools: Tool[] = []
   
-  // 内置关键词映射
-  private readonly keywordMappings: Record<string, string[]> = {
-    'solve_n_queens': [
-      '皇后问题', '皇后', '8皇后', 'n皇后', '八皇后', 'queens', 'queen', 
-      'n queens', 'queens problem', 'solve_n_queens', 'solve', '解决', 
-      '求解', '解', 'problem', '问题'
-    ],
-    'solve_sudoku': [
-      '数独', 'sudoku', '解数独', 'solve sudoku', '数独游戏', 'puzzle'
-    ],
-    'run_example': [
-      '示例', '演示', 'demo', '例子', '运行示例', 'run example', 'example', 
-      '测试', 'test', '样例', 'basic', 'lp'
-    ],
-    'install': [
-      '安装', 'install', '安装包', 'package', '部署', 'setup', 'gurddy'
-    ],
-    'echo': [
-      '回显', '重复', 'echo', 'repeat', '输出', 'output', 'hello'
-    ],
-    'info': [
-      '信息', '详情', 'info', 'information', '帮助', 'help'
-    ],
-    'solve_24_point_game': [
-      '24点游戏', '24点', '24 point', '算24', '数字游戏'
-    ],
-    'solve_chicken_rabbit_problem': [
-      '鸡兔同笼', 'chicken rabbit', '鸡兔问题', '经典问题'
-    ]
+  // 简化的关键词映射（仅作为最后回退）
+  private readonly basicKeywordMappings: Record<string, string[]> = {
+    'solve_n_queens': ['皇后', 'queens', '解决'],
+    'solve_sudoku': ['数独', 'sudoku'],
+    'run_example': ['示例', 'example', 'demo'],
+    'install': ['安装', 'install'],
+    'echo': ['回显', 'echo'],
+    'info': ['信息', 'info', '帮助'],
+    'solve_24_point_game': ['24点', '24 point'],
+    'solve_chicken_rabbit_problem': ['鸡兔', 'chicken rabbit']
   }
+
+  // 动态关键词映射缓存
+  private dynamicKeywordMappings: Record<string, string[]> = {}
 
   private constructor() {}
 
@@ -51,16 +35,45 @@ export class SimpleIntentRecognizer {
   }
 
   /**
-   * 更新可用工具列表
+   * 更新可用工具列表并尝试获取动态关键词
    */
   async updateAvailableTools(): Promise<void> {
     try {
       const mcpToolsService = getMCPToolsService()
       this.availableTools = await mcpToolsService.getAvailableTools()
       console.log(`Simple recognizer updated tools: ${this.availableTools.map(t => t.name).join(', ')}`)
+      
+      // 尝试从数据库获取动态关键词映射
+      await this.loadDynamicKeywordMappings()
     } catch (error) {
       console.error('Failed to update available tools:', error)
       this.availableTools = []
+    }
+  }
+
+  /**
+   * 从数据库加载动态关键词映射
+   */
+  private async loadDynamicKeywordMappings(): Promise<void> {
+    try {
+      const { getToolMetadataService } = await import('./tool-metadata-service')
+      const metadataService = getToolMetadataService()
+      
+      // 为每个可用工具获取关键词
+      for (const tool of this.availableTools) {
+        try {
+          const suggestions = await metadataService.getToolSuggestions(tool.name)
+          if (suggestions.length > 0) {
+            this.dynamicKeywordMappings[tool.name] = suggestions[0].keywords
+          }
+        } catch (error) {
+          console.warn(`获取工具 ${tool.name} 的动态关键词失败:`, error)
+        }
+      }
+      
+      console.log(`加载了 ${Object.keys(this.dynamicKeywordMappings).length} 个工具的动态关键词映射`)
+    } catch (error) {
+      console.warn('加载动态关键词映射失败，将使用基础映射:', error)
     }
   }
 
@@ -104,7 +117,11 @@ export class SimpleIntentRecognizer {
     }
 
     for (const tool of this.availableTools) {
-      const keywords = this.keywordMappings[tool.name] || []
+      // 优先使用动态关键词，回退到基础关键词
+      const keywords = this.dynamicKeywordMappings[tool.name] || 
+                      this.basicKeywordMappings[tool.name] || 
+                      [tool.name]
+      
       const matches = keywords.filter(keyword => 
         input.includes(keyword.toLowerCase())
       )
@@ -169,23 +186,21 @@ export class SimpleIntentRecognizer {
   }
 
   /**
-   * 校准置信度
+   * 校准置信度（简化版本）
    */
   private calibrateConfidence(toolName: string, rawConfidence: number): number {
-    const toolSuccessRates: Record<string, number> = {
-      'solve_n_queens': 0.95,
-      'solve_sudoku': 0.90,
-      'run_example': 0.85,
-      'echo': 0.98,
-      'info': 0.99,
-      'install': 0.75,
-      'solve_24_point_game': 0.80,
-      'solve_chicken_rabbit_problem': 0.88
+    // 基于工具类型的简单成功率估算
+    let successRate = 0.7 // 默认成功率
+    
+    if (toolName.includes('echo') || toolName.includes('info')) {
+      successRate = 0.95 // 简单工具成功率高
+    } else if (toolName.includes('solve')) {
+      successRate = 0.85 // 求解类工具成功率较高
+    } else if (toolName.includes('install')) {
+      successRate = 0.75 // 安装类工具可能有环境依赖
     }
 
-    const successRate = toolSuccessRates[toolName] || 0.7
     const calibratedConfidence = rawConfidence * successRate + (1 - successRate) * 0.1
-    
     return Math.max(0.05, Math.min(0.98, calibratedConfidence))
   }
 
