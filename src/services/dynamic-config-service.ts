@@ -102,7 +102,12 @@ export class DynamicConfigService {
       // 根据类型解析值
       switch (config_type) {
         case 'string':
-          value = JSON.parse(config_value)
+          // 尝试JSON解析，如果失败则直接使用原始值
+          try {
+            value = JSON.parse(config_value)
+          } catch {
+            value = config_value
+          }
           break
         case 'number':
           value = parseFloat(config_value)

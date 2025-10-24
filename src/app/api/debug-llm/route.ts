@@ -14,6 +14,10 @@ export async function POST(request: NextRequest) {
     console.log('Test parameters:', { message, includeTools, testType })
 
     const llmService = getLLMService()
+    
+    // Initialize the LLM service first
+    await llmService.initialize()
+    
     const results: any = {
       testType,
       timestamp: new Date().toISOString(),

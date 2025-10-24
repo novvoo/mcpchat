@@ -20,6 +20,15 @@ export async function GET(request: NextRequest) {
     switch (action) {
       case 'status':
         // 获取系统状态
+        // 获取系统状态 - 确保数据库服务已初始化
+        const { getDatabaseService } = await import('@/services/database')
+        const dbService = getDatabaseService()
+        try {
+          await dbService.initialize()
+        } catch (initError) {
+          console.error('数据库服务初始化失败:', initError)
+        }
+        
         const [
           llmUrl,
           toolThreshold,
