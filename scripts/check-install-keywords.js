@@ -3,7 +3,16 @@ const { getDatabaseService } = require('../src/services/database.ts');
 async function checkInstallKeywords() {
   try {
     const db = getDatabaseService();
+    
+    // Initialize database connection first
+    await db.initialize();
+    
     const client = await db.getClient();
+    
+    if (!client) {
+      console.error('无法连接到数据库');
+      return;
+    }
     
     console.log('检查install工具的关键词映射...');
     

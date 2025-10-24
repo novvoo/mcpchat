@@ -46,6 +46,10 @@ export class ToolMetadataService {
         if (this.initialized) return
 
         try {
+            // 首先初始化数据库服务
+            const dbService = getDatabaseService()
+            await dbService.initialize()
+
             await this.createTables()
             this.initialized = true
             console.log('Tool metadata service initialized')
@@ -114,6 +118,28 @@ export class ToolMetadataService {
           error_message TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+      `)
+
+            // 创建关键词embeddings表（使用pgvector）
+            await client.query(`
+        CREATE TABLE IF NOT EXISTS tool_keyword_embeddings (
+          id SERIAL PRIMARY KEY,
+          tool_name VARCHAR(255) NOT NULL,
+          keyword VARCHAR(255) NOT NULL,
+          embedding vector(1536),
+          source VARCHAR(50) DEFAULT 'manual',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(tool_name, keyword)
+        )
+      `)
+
+            // 创建embeddings索引以提高查询性能
+            await client.query(`
+        CREATE INDEX IF NOT EXISTS tool_keyword_embeddings_vector_idx 
+        ON tool_keyword_embeddings 
+        USING ivfflat (embedding vector_cosine_ops)
+        WITH (lists = 100)
       `)
 
             console.log('Tool metadata tables created successfully')
@@ -687,7 +713,7 @@ export class ToolMetadataService {
     }
 
     /**
-     * 获取工具特定的关键词 - 从数据库动态获取
+     * 获取工具特定的关键词 - 从数据库动态获取，支持LLM生成
      */
     private async getToolSpecificKeywords(toolName: string): Promise<string[]> {
         try {
@@ -700,21 +726,43 @@ export class ToolMetadataService {
 
             try {
                 const result = await client.query(
-                    'SELECT keyword FROM tool_keyword_mappings WHERE tool_name = $1',
+                    'SELECT keyword, source FROM tool_keyword_mappings WHERE tool_name = $1',
                     [toolName]
                 )
 
                 if (result.rows.length > 0) {
                     const keywords = result.rows.map(row => row.keyword)
-                    console.log(`从数据库获取工具 ${toolName} 的关键词: ${keywords.length} 个`)
-                    return keywords
+                    const hasLLMGenerated = result.rows.some(row => row.source === 'llm_generated')
+
+                    console.log(`从数据库获取工具 ${toolName} 的关键词: ${keywords.length} 个 (包含LLM生成: ${hasLLMGenerated})`)
+
+                    // 如果没有LLM生成的关键词，尝试生成并补充
+                    if (!hasLLMGenerated) {
+                        console.log(`工具 ${toolName} 缺少LLM生成的关键词，开始生成...`)
+                        const llmKeywords = await this.generateKeywordsWithLLM(toolName)
+                        if (llmKeywords.length > 0) {
+                            await this.storeKeywordsToDatabase(toolName, llmKeywords, 'llm_generated')
+                            keywords.push(...llmKeywords)
+                        }
+                    }
+
+                    return [...new Set(keywords)] // 去重
                 }
 
-                // 如果数据库中没有，生成并存储基础关键词
+                // 如果数据库中没有，优先使用LLM生成
+                console.log(`工具 ${toolName} 没有关键词映射，使用LLM生成...`)
+                const llmKeywords = await this.generateKeywordsWithLLM(toolName)
+
+                if (llmKeywords.length > 0) {
+                    await this.storeKeywordsToDatabase(toolName, llmKeywords, 'llm_generated')
+                    return llmKeywords
+                }
+
+                // LLM生成失败，回退到基础关键词
                 const fallbackKeywords = this.getFallbackKeywords(toolName)
                 if (fallbackKeywords.length > 0) {
-                    console.log(`为工具 ${toolName} 生成并存储基础关键词`)
-                    await this.storeKeywordsToDatabase(toolName, fallbackKeywords)
+                    console.log(`LLM生成失败，为工具 ${toolName} 使用回退关键词`)
+                    await this.storeKeywordsToDatabase(toolName, fallbackKeywords, 'fallback')
                 }
                 return fallbackKeywords
 
@@ -763,14 +811,219 @@ export class ToolMetadataService {
         if (toolName.includes('install')) {
             keywords.push('安装', 'install')
         }
+        if (toolName.includes('24_point_game') || toolName.includes('24point')) {
+            keywords.push('24点', '24 点', '24点游戏', '24 point', '得到24', '算出24', '加减乘除', '四则运算', '24游戏', 'make 24', 'get 24')
+        }
 
         return [...new Set(keywords)] // 去重
     }
 
     /**
+     * 使用LLM生成工具关键词
+     */
+    private async generateKeywordsWithLLM(toolName: string, description?: string): Promise<string[]> {
+        try {
+            const { getLLMService } = await import('./llm-service')
+            const llmService = getLLMService()
+
+            // 获取工具的详细信息
+            const toolInfo = await this.getToolInfo(toolName)
+            const toolDescription = description || toolInfo?.description || ''
+
+            // 构建LLM提示词
+            const prompt = this.buildKeywordGenerationPrompt(toolName, toolDescription, toolInfo)
+
+            const messages = [
+                {
+                    role: 'system' as const,
+                    content: `你是一个专业的工具关键词生成助手。你的任务是为MCP工具生成准确、全面的关键词，帮助用户更容易找到和使用这些工具。
+
+关键词生成原则：
+1. 包含中文和英文关键词
+2. 涵盖工具的核心功能和用途
+3. 包含用户可能使用的自然语言表达
+4. 考虑同义词和相关术语
+5. 每个工具生成10-20个关键词
+6. 关键词应该简洁明了，避免过长的短语
+
+请以JSON数组格式返回关键词，例如：["关键词1", "关键词2", ...]`
+                },
+                {
+                    role: 'user' as const,
+                    content: prompt
+                }
+            ]
+
+            console.log(`使用LLM为工具 ${toolName} 生成关键词...`)
+            const response = await llmService.sendMessage(messages)
+
+            // 解析LLM响应
+            const keywords = this.parseLLMKeywordResponse(response.content)
+
+            if (keywords.length > 0) {
+                console.log(`LLM为工具 ${toolName} 生成了 ${keywords.length} 个关键词:`, keywords.slice(0, 5).join(', '), '...')
+
+                // 生成embeddings并存储到向量数据库
+                await this.storeKeywordEmbeddings(toolName, keywords)
+
+                return keywords
+            } else {
+                console.warn(`LLM未能为工具 ${toolName} 生成有效关键词`)
+                return []
+            }
+
+        } catch (error) {
+            console.error(`LLM生成工具 ${toolName} 关键词失败:`, error)
+            return []
+        }
+    }
+
+    /**
+     * 构建关键词生成的提示词
+     */
+    private buildKeywordGenerationPrompt(toolName: string, description: string, toolInfo: any): string {
+        let prompt = `请为以下MCP工具生成关键词：
+
+工具名称: ${toolName}
+工具描述: ${description || '无描述'}
+`
+
+        // 添加参数信息
+        if (toolInfo?.inputSchema?.properties) {
+            const params = Object.keys(toolInfo.inputSchema.properties)
+            prompt += `参数: ${params.join(', ')}\n`
+        }
+
+        // 根据工具类型添加特定指导
+        if (toolName.includes('solve')) {
+            prompt += `
+这是一个求解类工具，请包含以下类型的关键词：
+- 求解、解决、计算相关的中英文词汇
+- 问题类型相关的术语
+- 数学、算法相关的词汇`
+        } else if (toolName.includes('run') || toolName.includes('execute')) {
+            prompt += `
+这是一个执行类工具，请包含以下类型的关键词：
+- 运行、执行、启动相关的中英文词汇
+- 示例、演示相关的术语`
+        } else if (toolName.includes('install')) {
+            prompt += `
+这是一个安装类工具，请包含以下类型的关键词：
+- 安装、部署、配置相关的中英文词汇
+- 包管理相关的术语`
+        }
+
+        prompt += `
+
+请生成10-20个关键词，包含：
+1. 工具核心功能的直接描述
+2. 用户可能使用的自然语言表达
+3. 相关的同义词和变体
+4. 中文和英文关键词
+
+以JSON数组格式返回，只返回数组，不要其他解释。`
+
+        return prompt
+    }
+
+    /**
+     * 解析LLM关键词响应
+     */
+    private parseLLMKeywordResponse(content: string): string[] {
+        try {
+            // 尝试直接解析JSON
+            const keywords = JSON.parse(content)
+            if (Array.isArray(keywords)) {
+                return keywords.filter(k => typeof k === 'string' && k.trim().length > 0)
+            }
+        } catch (error) {
+            // JSON解析失败，尝试其他方式提取
+            console.warn('LLM响应不是有效JSON，尝试文本解析:', error)
+        }
+
+        // 尝试从文本中提取关键词
+        const lines = content.split('\n')
+        const keywords: string[] = []
+
+        for (const line of lines) {
+            const trimmed = line.trim()
+            // 匹配引号中的内容
+            const matches = trimmed.match(/"([^"]+)"/g)
+            if (matches) {
+                keywords.push(...matches.map(m => m.replace(/"/g, '')))
+            }
+            // 匹配列表项
+            else if (trimmed.match(/^[-*]\s*(.+)$/)) {
+                const match = trimmed.match(/^[-*]\s*(.+)$/)
+                if (match) {
+                    keywords.push(match[1].trim())
+                }
+            }
+        }
+
+        return keywords.filter(k => k.length > 0 && k.length < 50) // 过滤过长的关键词
+    }
+
+    /**
+     * 存储关键词embeddings到向量数据库
+     */
+    private async storeKeywordEmbeddings(toolName: string, keywords: string[]): Promise<void> {
+        try {
+            const { getEmbeddingService } = await import('./embedding-service')
+            const embeddingService = getEmbeddingService()
+
+            // 为每个关键词生成embedding
+            for (const keyword of keywords) {
+                try {
+                    const embedding = await embeddingService.generateEmbedding(keyword)
+
+                    // 存储到向量数据库
+                    const dbService = getDatabaseService()
+                    const client = await dbService.getClient()
+                    if (client) {
+                        try {
+                            await client.query(`
+                                INSERT INTO tool_keyword_embeddings (tool_name, keyword, embedding, source)
+                                VALUES ($1, $2, $3, $4)
+                                ON CONFLICT (tool_name, keyword) DO UPDATE SET
+                                    embedding = EXCLUDED.embedding,
+                                    source = EXCLUDED.source,
+                                    updated_at = CURRENT_TIMESTAMP
+                            `, [toolName, keyword, JSON.stringify(embedding), 'llm_generated'])
+                        } finally {
+                            client.release()
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`为关键词 "${keyword}" 生成embedding失败:`, error)
+                }
+            }
+
+            console.log(`为工具 ${toolName} 的 ${keywords.length} 个关键词生成并存储了embeddings`)
+        } catch (error) {
+            console.error(`存储关键词embeddings失败:`, error)
+        }
+    }
+
+    /**
+     * 获取工具详细信息
+     */
+    private async getToolInfo(toolName: string): Promise<any> {
+        try {
+            const { getMCPToolsService } = await import('./mcp-tools')
+            const mcpToolsService = getMCPToolsService()
+            const tools = await mcpToolsService.getAvailableTools()
+            return tools.find(tool => tool.name === toolName)
+        } catch (error) {
+            console.warn(`获取工具 ${toolName} 信息失败:`, error)
+            return null
+        }
+    }
+
+    /**
      * 将关键词存储到数据库
      */
-    private async storeKeywordsToDatabase(toolName: string, keywords: string[]): Promise<void> {
+    private async storeKeywordsToDatabase(toolName: string, keywords: string[], source: string = 'auto_generated'): Promise<void> {
         try {
             const dbService = getDatabaseService()
             const client = await dbService.getClient()
@@ -778,13 +1031,19 @@ export class ToolMetadataService {
 
             try {
                 for (const keyword of keywords) {
+                    const confidence = source === 'llm_generated' ? 0.9 : 0.8
                     await client.query(`
                         INSERT INTO tool_keyword_mappings (tool_name, keyword, confidence, source)
                         VALUES ($1, $2, $3, $4)
-                        ON CONFLICT (tool_name, keyword) DO NOTHING
-                    `, [toolName, keyword, 0.8, 'auto_generated'])
+                        ON CONFLICT (tool_name, keyword) DO UPDATE SET
+                            confidence = GREATEST(tool_keyword_mappings.confidence, EXCLUDED.confidence),
+                            source = CASE 
+                                WHEN EXCLUDED.source = 'llm_generated' THEN 'llm_generated'
+                                ELSE tool_keyword_mappings.source
+                            END
+                    `, [toolName, keyword, confidence, source])
                 }
-                console.log(`为工具 ${toolName} 存储了 ${keywords.length} 个关键词到数据库`)
+                console.log(`为工具 ${toolName} 存储了 ${keywords.length} 个关键词到数据库 (来源: ${source})`)
             } finally {
                 client.release()
             }
@@ -1096,25 +1355,120 @@ export class ToolMetadataService {
         if (!client) return
 
         try {
-            // 删除旧的参数映射
-            await client.query('DELETE FROM tool_parameter_mappings WHERE tool_name = $1', [toolName])
-
-            // 插入新的参数映射
+            // 使用 UPSERT 而不是删除后插入，避免并发问题
             for (const [userInput, mcpParameter] of Object.entries(mappings)) {
-                await client.query(`
-          INSERT INTO tool_parameter_mappings (tool_name, user_input, mcp_parameter, confidence)
-          VALUES ($1, $2, $3, $4)
-        `, [toolName, userInput, mcpParameter, 1.0])
+                try {
+                    await client.query(`
+            INSERT INTO tool_parameter_mappings (tool_name, user_input, mcp_parameter, confidence)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (tool_name, user_input) DO UPDATE SET
+              mcp_parameter = EXCLUDED.mcp_parameter,
+              confidence = EXCLUDED.confidence,
+              updated_at = CURRENT_TIMESTAMP
+          `, [toolName, userInput, mcpParameter, 1.0])
+                } catch (insertError) {
+                    const errorMessage = insertError instanceof Error ? insertError.message : String(insertError)
+                    console.warn(`插入参数映射失败 (${toolName}, ${userInput}):`, errorMessage)
+                    // 继续处理其他映射
+                }
             }
+        } catch (error) {
+            console.error(`更新工具 ${toolName} 的参数映射失败:`, error)
         } finally {
             client.release()
         }
     }
 
     /**
-     * 根据用户输入获取工具建议
+     * 根据用户输入获取工具建议 - 支持向量相似度搜索
      */
     async getToolSuggestions(userInput: string): Promise<ToolKeywordMapping[]> {
+        // 首先尝试向量相似度搜索
+        const vectorSuggestions = await this.getToolSuggestionsWithVector(userInput)
+        if (vectorSuggestions.length > 0) {
+            console.log(`向量搜索为用户输入找到 ${vectorSuggestions.length} 个建议`)
+            return vectorSuggestions
+        }
+
+        // 回退到传统关键词匹配
+        console.log('向量搜索无结果，使用传统关键词匹配')
+        return this.getToolSuggestionsWithKeywords(userInput)
+    }
+
+    /**
+     * 使用向量相似度获取工具建议
+     */
+    private async getToolSuggestionsWithVector(userInput: string): Promise<ToolKeywordMapping[]> {
+        try {
+            const { getEmbeddingService } = await import('./embedding-service')
+            const embeddingService = getEmbeddingService()
+
+            // 生成用户输入的embedding
+            const userEmbedding = await embeddingService.generateEmbedding(userInput)
+
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) return []
+
+            try {
+                // 使用余弦相似度搜索最相似的关键词
+                const result = await client.query(`
+                    SELECT 
+                        tool_name,
+                        keyword,
+                        1 - (embedding <=> $1::vector) as similarity
+                    FROM tool_keyword_embeddings
+                    WHERE 1 - (embedding <=> $1::vector) > 0.7  -- 相似度阈值
+                    ORDER BY similarity DESC
+                    LIMIT 20
+                `, [JSON.stringify(userEmbedding)])
+
+                if (result.rows.length === 0) {
+                    return []
+                }
+
+                // 按工具名称分组并计算综合置信度
+                const toolGroups = new Map<string, { keywords: string[], similarities: number[] }>()
+
+                for (const row of result.rows) {
+                    if (!toolGroups.has(row.tool_name)) {
+                        toolGroups.set(row.tool_name, { keywords: [], similarities: [] })
+                    }
+                    const group = toolGroups.get(row.tool_name)!
+                    group.keywords.push(row.keyword)
+                    group.similarities.push(parseFloat(row.similarity))
+                }
+
+                // 计算每个工具的综合置信度
+                const suggestions: ToolKeywordMapping[] = []
+                for (const [toolName, group] of toolGroups) {
+                    // 使用最高相似度和平均相似度的加权平均
+                    const maxSimilarity = Math.max(...group.similarities)
+                    const avgSimilarity = group.similarities.reduce((a, b) => a + b, 0) / group.similarities.length
+                    const confidence = (maxSimilarity * 0.7 + avgSimilarity * 0.3) * Math.min(1, group.keywords.length / 3)
+
+                    suggestions.push({
+                        toolName,
+                        keywords: group.keywords,
+                        confidence
+                    })
+                }
+
+                return suggestions.sort((a, b) => b.confidence - a.confidence)
+
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.warn('向量相似度搜索失败:', error)
+            return []
+        }
+    }
+
+    /**
+     * 使用传统关键词匹配获取工具建议
+     */
+    private async getToolSuggestionsWithKeywords(userInput: string): Promise<ToolKeywordMapping[]> {
         const dbService = getDatabaseService()
         const client = await dbService.getClient()
         if (!client) return []
@@ -1315,6 +1669,129 @@ export class ToolMetadataService {
             }
         } finally {
             client.release()
+        }
+    }
+
+    /**
+     * 为特定工具生成关键词（公共方法）
+     */
+    async generateKeywordsForTool(toolName: string): Promise<string[]> {
+        const keywords = await this.generateKeywordsWithLLM(toolName)
+
+        if (keywords.length > 0) {
+            // 存储关键词映射到数据库
+            await this.storeKeywordsToDatabase(toolName, keywords, 'llm_generated')
+        }
+
+        return keywords
+    }
+
+    /**
+     * 清除工具的LLM生成关键词
+     */
+    async clearLLMKeywords(toolName: string): Promise<void> {
+        try {
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) return
+
+            try {
+                // 删除LLM生成的关键词映射
+                await client.query(`
+                    DELETE FROM tool_keyword_mappings 
+                    WHERE tool_name = $1 AND source = 'llm_generated'
+                `, [toolName])
+
+                // 删除LLM生成的关键词embeddings
+                await client.query(`
+                    DELETE FROM tool_keyword_embeddings 
+                    WHERE tool_name = $1 AND source = 'llm_generated'
+                `, [toolName])
+
+                console.log(`已清除工具 ${toolName} 的LLM生成关键词`)
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.error(`清除工具 ${toolName} 的LLM关键词失败:`, error)
+        }
+    }
+
+    /**
+     * 获取LLM关键词生成统计
+     */
+    async getLLMKeywordStats(): Promise<{
+        totalTools: number
+        toolsWithLLMKeywords: number
+        totalLLMKeywords: number
+        totalEmbeddings: number
+        lastGenerated: Date | null
+    }> {
+        try {
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) {
+                return {
+                    totalTools: 0,
+                    toolsWithLLMKeywords: 0,
+                    totalLLMKeywords: 0,
+                    totalEmbeddings: 0,
+                    lastGenerated: null
+                }
+            }
+
+            try {
+                // 获取总工具数
+                const totalToolsResult = await client.query(`
+                    SELECT COUNT(DISTINCT name) as count FROM mcp_tools
+                `)
+
+                // 获取有LLM关键词的工具数
+                const llmToolsResult = await client.query(`
+                    SELECT COUNT(DISTINCT tool_name) as count 
+                    FROM tool_keyword_mappings 
+                    WHERE source = 'llm_generated'
+                `)
+
+                // 获取LLM关键词总数
+                const llmKeywordsResult = await client.query(`
+                    SELECT COUNT(*) as count 
+                    FROM tool_keyword_mappings 
+                    WHERE source = 'llm_generated'
+                `)
+
+                // 获取embeddings总数
+                const embeddingsResult = await client.query(`
+                    SELECT COUNT(*) as count 
+                    FROM tool_keyword_embeddings
+                `)
+
+                // 获取最后生成时间
+                const lastGeneratedResult = await client.query(`
+                    SELECT MAX(created_at) as last_generated 
+                    FROM tool_keyword_mappings 
+                    WHERE source = 'llm_generated'
+                `)
+
+                return {
+                    totalTools: parseInt(totalToolsResult.rows[0]?.count || '0'),
+                    toolsWithLLMKeywords: parseInt(llmToolsResult.rows[0]?.count || '0'),
+                    totalLLMKeywords: parseInt(llmKeywordsResult.rows[0]?.count || '0'),
+                    totalEmbeddings: parseInt(embeddingsResult.rows[0]?.count || '0'),
+                    lastGenerated: lastGeneratedResult.rows[0]?.last_generated || null
+                }
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.error('获取LLM关键词统计失败:', error)
+            return {
+                totalTools: 0,
+                toolsWithLLMKeywords: 0,
+                totalLLMKeywords: 0,
+                totalEmbeddings: 0,
+                lastGenerated: null
+            }
         }
     }
 }

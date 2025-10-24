@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     for (const testCase of testCases) {
       try {
         // 使用公共测试方法进行格式化
-        const formattedResult = smartRouter.testFormatMCPResult(
+        const formattedResult = await smartRouter.testFormatMCPResult(
           testCase.toolName,
           testCase.mockResult,
           testCase.params

@@ -12,7 +12,7 @@ export class MCPIntentRecognizer {
   private availableTools: Tool[] = []
   private initialized = false
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): MCPIntentRecognizer {
     if (!MCPIntentRecognizer.instance) {
@@ -30,13 +30,13 @@ export class MCPIntentRecognizer {
     try {
       const metadataService = getToolMetadataService()
       await metadataService.initialize()
-      
+
       // 刷新工具元数据
       await metadataService.refreshToolMetadata()
-      
+
       // 确保关键词映射存在
       await metadataService.ensureKeywordMappingsExist()
-      
+
       this.initialized = true
       console.log('MCP Intent Recognizer initialized with dynamic metadata')
     } catch (error) {
@@ -71,7 +71,7 @@ export class MCPIntentRecognizer {
   }> {
     // 确保服务已初始化
     await this.initialize()
-    
+
     // 确保工具列表是最新的
     await this.updateAvailableTools()
 
@@ -84,7 +84,7 @@ export class MCPIntentRecognizer {
     }
 
     const input = userInput.toLowerCase().trim()
-    
+
     // 首先检查是否是信息查询类请求
     if (this.isInformationQuery(input)) {
       return {
@@ -96,32 +96,43 @@ export class MCPIntentRecognizer {
 
     // 尝试使用动态元数据服务获取工具建议
     const metadataService = getToolMetadataService()
-    let suggestions = []
-    
+    let suggestions: Array<{
+      toolName: string
+      keywords: string[]
+      confidence: number
+    }> = []
+    let useSimpleFallback = false
+
     try {
       suggestions = await metadataService.getToolSuggestions(userInput)
+      console.log(`Metadata service returned ${suggestions.length} suggestions`)
     } catch (error) {
       console.warn('Metadata service failed, falling back to simple recognizer:', error)
-      
-      // 使用简单识别器作为备选
-      const { getSimpleIntentRecognizer } = await import('./simple-intent-recognizer')
-      const simpleRecognizer = getSimpleIntentRecognizer()
-      return await simpleRecognizer.recognizeIntent(userInput)
+      useSimpleFallback = true
     }
 
-    if (suggestions.length === 0) {
-      console.warn('No suggestions from metadata service, falling back to simple recognizer')
-      
+    if (suggestions.length === 0 || useSimpleFallback) {
+      console.warn('No suggestions from metadata service or service failed, falling back to simple recognizer')
+
       // 使用简单识别器作为备选
       const { getSimpleIntentRecognizer } = await import('./simple-intent-recognizer')
       const simpleRecognizer = getSimpleIntentRecognizer()
-      return await simpleRecognizer.recognizeIntent(userInput)
+      const simpleResult = await simpleRecognizer.recognizeIntent(userInput)
+
+      console.log(`Simple recognizer result:`, {
+        needsMCP: simpleResult.needsMCP,
+        confidence: simpleResult.confidence,
+        suggestedTool: simpleResult.suggestedTool,
+        reasoning: simpleResult.reasoning
+      })
+
+      return simpleResult
     }
 
     // 选择最佳匹配并校准置信度
     const bestSuggestion = suggestions[0]
     const calibratedConfidence = await this.calibrateConfidence(bestSuggestion.toolName, bestSuggestion.confidence)
-    
+
     // 提取参数
     const parameters = await this.extractParameters(bestSuggestion.toolName, userInput)
 
@@ -132,7 +143,7 @@ export class MCPIntentRecognizer {
 
     // 根据校准后的置信度等级决定是否使用MCP工具
     const shouldUseMCP = calibratedConfidence >= MEDIUM_CONFIDENCE_THRESHOLD
-    
+
     // 生成更详细的推理说明
     let confidenceLevel = 'low'
     if (calibratedConfidence >= HIGH_CONFIDENCE_THRESHOLD) {
@@ -163,6 +174,8 @@ export class MCPIntentRecognizer {
         params.n = this.extractNumberParameter(userInput, 'queens', 8)
       } else if (toolName === 'solve_sudoku') {
         params.puzzle = this.extractSudokuGrid(userInput)
+      } else if (toolName === 'solve_24_point_game') {
+        params.numbers = this.extract24PointNumbers(userInput)
       } else if (toolName === 'run_example') {
         // 使用动态参数映射
         const exampleType = await this.extractExampleType(userInput, metadataService)
@@ -208,16 +221,30 @@ export class MCPIntentRecognizer {
 
     // 返回默认数独
     return [
-      [5,3,0,0,7,0,0,0,0],
-      [6,0,0,1,9,5,0,0,0],
-      [0,9,8,0,0,0,0,6,0],
-      [8,0,0,0,6,0,0,0,3],
-      [4,0,0,8,0,3,0,0,1],
-      [7,0,0,0,2,0,0,0,6],
-      [0,6,0,0,0,0,2,8,0],
-      [0,0,0,4,1,9,0,0,5],
-      [0,0,0,0,8,0,0,7,9]
+      [5, 3, 0, 0, 7, 0, 0, 0, 0],
+      [6, 0, 0, 1, 9, 5, 0, 0, 0],
+      [0, 9, 8, 0, 0, 0, 0, 6, 0],
+      [8, 0, 0, 0, 6, 0, 0, 0, 3],
+      [4, 0, 0, 8, 0, 3, 0, 0, 1],
+      [7, 0, 0, 0, 2, 0, 0, 0, 6],
+      [0, 6, 0, 0, 0, 0, 2, 8, 0],
+      [0, 0, 0, 4, 1, 9, 0, 0, 5],
+      [0, 0, 0, 0, 8, 0, 0, 7, 9]
     ]
+  }
+
+  /**
+   * 提取24点游戏的数字
+   */
+  private extract24PointNumbers(input: string): number[] {
+    // 尝试提取数字
+    const numbers = input.match(/\d+/g)
+    if (numbers && numbers.length >= 4) {
+      return numbers.slice(0, 4).map(n => parseInt(n))
+    }
+    
+    // 如果没有找到足够的数字，返回默认值
+    return [8, 8, 4, 13]
   }
 
   /**
@@ -226,20 +253,20 @@ export class MCPIntentRecognizer {
   private async extractExampleType(input: string, metadataService: any): Promise<string> {
     // 首先尝试从输入中提取类型
     const typeMatch = input.match(/run\s+example\s+([a-zA-Z_]+)/i) ||
-                     input.match(/example\s+([a-zA-Z_]+)/i) ||
-                     input.match(/(?:type|类型)[=:\s]+([a-zA-Z_]+)/i) ||
-                     input.match(/run\s+([a-zA-Z_]+)\s+example/i)
+      input.match(/example\s+([a-zA-Z_]+)/i) ||
+      input.match(/(?:type|类型)[=:\s]+([a-zA-Z_]+)/i) ||
+      input.match(/run\s+([a-zA-Z_]+)\s+example/i)
 
     if (typeMatch) {
       const rawType = typeMatch[1].toLowerCase()
-      
+
       // 使用动态参数映射
       const mappedType = await metadataService.getParameterMapping('run_example', rawType)
       if (mappedType) {
         console.log(`Mapped "${rawType}" to "${mappedType}" using dynamic metadata`)
         return mappedType
       }
-      
+
       // 如果没有映射，返回原始类型
       return rawType
     }
@@ -253,8 +280,8 @@ export class MCPIntentRecognizer {
    */
   private extractEchoMessage(input: string): string {
     const echoMatch = input.match(/echo[:\s]+(.+)/i) ||
-                     input.match(/say[:\s]+(.+)/i) ||
-                     input.match(/repeat[:\s]+(.+)/i)
+      input.match(/say[:\s]+(.+)/i) ||
+      input.match(/repeat[:\s]+(.+)/i)
 
     return echoMatch ? echoMatch[1].trim() : input
   }
@@ -271,11 +298,11 @@ export class MCPIntentRecognizer {
     suggestedParams?: Record<string, any>
   }>> {
     await this.updateAvailableTools()
-    
+
     // 使用动态元数据服务获取建议
     const metadataService = getToolMetadataService()
     const suggestions = await metadataService.getToolSuggestions(userInput)
-    
+
     return suggestions.map(suggestion => ({
       toolName: suggestion.toolName,
       description: this.availableTools.find(t => t.name === suggestion.toolName)?.description || '',
@@ -305,30 +332,26 @@ export class MCPIntentRecognizer {
    * 检查是否是信息查询类请求
    */
   private isInformationQuery(input: string): boolean {
-    // 信息查询的关键词
+    // 如果包含明确的工具相关关键词，不应该被识别为信息查询
+    const toolKeywords = ['24点', '24 point', '得到24', '算出24', '数独', 'sudoku', '皇后', 'queens', '加减乘除', '四则运算']
+    if (toolKeywords.some(keyword => input.includes(keyword))) {
+      return false
+    }
+
+    // 信息查询的关键词（排除可能与工具使用混淆的词）
     const queryWords = [
       '什么是', '什么叫', 'what is', 'what are',
-      '如何', '怎么', '怎样', 'how to', 'how do',
       '为什么', 'why', '原因',
       '解释', '说明', 'explain', 'describe',
       '介绍', 'introduce', 'tell me about',
       '定义', 'definition', 'meaning',
-      '规则', 'rules', '原理', 'principle'
+      '规则', 'rules', '原理', 'principle',
+      '天气', 'weather', '今天', 'today', '明天', 'tomorrow'
     ]
 
-    // 疑问词
-    const questionWords = ['？', '?', '吗', '呢']
-
-    // 检查是否包含查询关键词
-    const hasQueryWords = queryWords.some(word => input.includes(word))
-    
-    // 检查是否包含疑问词
-    const hasQuestionWords = questionWords.some(word => input.includes(word))
-
-    // 检查是否以疑问词开头
-    const startsWithQuestion = /^(什么|如何|怎么|怎样|为什么|why|what|how|where|when|who)/i.test(input)
-
-    return hasQueryWords || hasQuestionWords || startsWithQuestion
+    // 只有纯粹的信息查询才返回true
+    return queryWords.some(word => input.includes(word)) &&
+      !toolKeywords.some(keyword => input.includes(keyword))
   }
 
   /**
@@ -338,19 +361,19 @@ export class MCPIntentRecognizer {
     try {
       // 从数据库获取工具的实际成功率
       const successRate = await this.getToolSuccessRateFromDatabase(toolName)
-      
+
       // 使用贝叶斯方法校准置信度
       const calibratedConfidence = rawConfidence * successRate + (1 - successRate) * 0.1
-      
+
       // 确保置信度在合理范围内
       return Math.max(0.05, Math.min(0.98, calibratedConfidence))
     } catch (error) {
       console.warn(`获取工具 ${toolName} 成功率失败，使用默认值:`, error)
-      
+
       // 回退到基础成功率估算
       const defaultSuccessRate = this.getDefaultSuccessRate(toolName)
       const calibratedConfidence = rawConfidence * defaultSuccessRate + (1 - defaultSuccessRate) * 0.1
-      
+
       return Math.max(0.05, Math.min(0.98, calibratedConfidence))
     }
   }
@@ -363,7 +386,7 @@ export class MCPIntentRecognizer {
       const { getDatabaseService } = await import('./database')
       const dbService = getDatabaseService()
       const client = await dbService.getClient()
-      
+
       if (!client) {
         throw new Error('数据库连接不可用')
       }
@@ -388,9 +411,9 @@ export class MCPIntentRecognizer {
           const stats = result.rows[0]
           const totalUses = parseInt(stats.total_uses)
           const successRate = parseFloat(stats.success_rate)
-          
+
           console.log(`工具 ${toolName} 统计: ${stats.successful_uses}/${totalUses} 成功，成功率: ${(successRate * 100).toFixed(1)}%`)
-          
+
           // 如果使用次数太少，混合默认成功率
           if (totalUses < 5) {
             const defaultRate = this.getDefaultSuccessRate(toolName)
@@ -398,7 +421,7 @@ export class MCPIntentRecognizer {
             console.log(`使用次数较少，混合默认成功率: ${(blendedRate * 100).toFixed(1)}%`)
             return blendedRate
           }
-          
+
           return successRate
         }
 
@@ -422,9 +445,10 @@ export class MCPIntentRecognizer {
     if (toolName.includes('info')) return 0.99
     if (toolName.includes('solve_n_queens')) return 0.95
     if (toolName.includes('solve_sudoku')) return 0.90
+    if (toolName.includes('solve_24_point_game')) return 0.90  // 添加24点游戏的成功率
     if (toolName.includes('run_example')) return 0.85
     if (toolName.includes('install')) return 0.75
-    
+
     // 默认成功率
     return 0.7
   }

@@ -18,7 +18,7 @@ export class SimpleIntentRecognizer {
     'install': ['安装', 'install'],
     'echo': ['回显', 'echo'],
     'info': ['信息', 'info', '帮助'],
-    'solve_24_point_game': ['24点', '24 point'],
+    'solve_24_point_game': ['24点', '24 point', '得到24', '算出24', '24游戏', '加减乘除', '四则运算', 'make 24', 'get 24'],
     'solve_chicken_rabbit_problem': ['鸡兔', 'chicken rabbit']
   }
 
@@ -166,20 +166,26 @@ export class SimpleIntentRecognizer {
    */
   private calculateConfidence(input: string, matches: string[], allKeywords: string[]): number {
     // 基础匹配分数
-    let score = 0.3
+    let score = 0.4
     
     // 匹配关键词数量奖励
-    score += (matches.length / allKeywords.length) * 0.4
+    score += (matches.length / allKeywords.length) * 0.3
     
     // 长关键词奖励
     const avgMatchLength = matches.reduce((sum, match) => sum + match.length, 0) / matches.length
-    if (avgMatchLength >= 4) {
+    if (avgMatchLength >= 3) {
       score += 0.2
     }
     
     // 完全匹配奖励
     if (matches.some(match => input === match.toLowerCase())) {
       score += 0.3
+    }
+    
+    // 特殊关键词奖励（如"24点"、"24 point"等核心关键词）
+    const coreKeywords = ['24点', '24 point', '数独', 'sudoku', '皇后', 'queens']
+    if (matches.some(match => coreKeywords.includes(match))) {
+      score += 0.2
     }
     
     return Math.min(1.0, score)
@@ -216,6 +222,9 @@ export class SimpleIntentRecognizer {
         break
       case 'solve_n_queens':
         params.n = this.extractNumber(userInput, 8)
+        break
+      case 'solve_24_point_game':
+        params.numbers = this.extract24PointNumbers(userInput)
         break
       case 'echo':
         params.message = this.extractEchoMessage(userInput)
@@ -255,6 +264,20 @@ export class SimpleIntentRecognizer {
   }
 
   /**
+   * 提取24点游戏的数字
+   */
+  private extract24PointNumbers(input: string): number[] {
+    // 尝试提取数字
+    const numbers = input.match(/\d+/g)
+    if (numbers && numbers.length >= 4) {
+      return numbers.slice(0, 4).map(n => parseInt(n))
+    }
+    
+    // 如果没有找到足够的数字，返回默认值
+    return [8, 8, 4, 13]
+  }
+
+  /**
    * 提取包名
    */
   private extractPackageName(input: string): string {
@@ -267,15 +290,21 @@ export class SimpleIntentRecognizer {
    * 检查是否是信息查询
    */
   private isInformationQuery(input: string): boolean {
+    // 如果包含明确的工具相关关键词，不应该被识别为信息查询
+    const toolKeywords = ['24点', '24 point', '得到24', '算出24', '数独', 'sudoku', '皇后', 'queens']
+    if (toolKeywords.some(keyword => input.includes(keyword))) {
+      return false
+    }
+
     const queryWords = [
       '什么是', '什么叫', 'what is', 'what are',
-      '如何', '怎么', '怎样', 'how to', 'how do',
       '为什么', 'why', '原因',
       '解释', '说明', 'explain', 'describe'
     ]
 
-    return queryWords.some(word => input.includes(word)) ||
-           input.includes('？') || input.includes('?')
+    // 只有纯粹的信息查询才返回true
+    return queryWords.some(word => input.includes(word)) && 
+           !toolKeywords.some(keyword => input.includes(keyword))
   }
 }
 

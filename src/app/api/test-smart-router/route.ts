@@ -109,7 +109,7 @@ function generateTestInputForProblem(problem: any): string | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, testMode = 'full' } = await request.json()
+    const { message, testMode = 'full', customThreshold } = await request.json()
 
     if (!message) {
       return NextResponse.json(
@@ -150,13 +150,28 @@ export async function POST(request: NextRequest) {
       const smartRouter = getSmartRouter()
       
       try {
+        // 添加详细的调试信息
+        console.log(`Smart router config:`, {
+          enableMCPFirst: true,
+          enableLLMFallback: false,
+          mcpConfidenceThreshold: customThreshold || 0.3
+        })
+        
         const routerResult = await smartRouter.processMessage(message, undefined, {
           enableMCPFirst: true,
           enableLLMFallback: false, // 禁用LLM fallback来测试直接工具调用
-          mcpConfidenceThreshold: 0.3
+          mcpConfidenceThreshold: customThreshold || 0.3
         })
+        
+        console.log(`Smart router result:`, {
+          source: routerResult.source,
+          confidence: routerResult.confidence,
+          reasoning: routerResult.reasoning
+        })
+        
         results.smartRouterResult = routerResult
       } catch (error) {
+        console.error('Smart router error:', error)
         results.smartRouterError = {
           message: error instanceof Error ? error.message : 'Unknown error',
           stack: error instanceof Error ? error.stack : undefined

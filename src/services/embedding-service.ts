@@ -12,7 +12,7 @@ export class EmbeddingService {
   private headers: Record<string, string> = {}
   private embeddingsConfig: EmbeddingsConfig | null = null
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): EmbeddingService {
     if (!EmbeddingService.instance) {
@@ -28,24 +28,24 @@ export class EmbeddingService {
     try {
       const configLoader = getConfigLoader()
       await configLoader.loadConfig()
-      
+
       const llmConfig = configLoader.getLLMConfig()
       this.embeddingsConfig = configLoader.getEmbeddingsConfig()
-      
+
       // Use LLM endpoint for embeddings (OpenAI compatible)
       this.baseUrl = llmConfig.url.replace('/v1', '') + '/v1'
-      
+
       // Build headers from config
       this.headers = {
         'Content-Type': 'application/json',
         ...llmConfig.headers
       }
-      
+
       // Add Authorization header if API key is provided
       if (llmConfig.apiKey) {
         this.headers['Authorization'] = `Bearer ${llmConfig.apiKey}`
       }
-      
+
       console.log('Embedding service initialized with provider:', this.embeddingsConfig.provider)
     } catch (error) {
       console.error('Failed to initialize embedding service:', error)
@@ -90,7 +90,7 @@ export class EmbeddingService {
           // Rate limited - wait and retry
           const waitTime = Math.pow(2, attempt) * 1000 // Exponential backoff
           console.warn(`Rate limited (attempt ${attempt}/${maxRetries}), waiting ${waitTime}ms`)
-          
+
           if (attempt < maxRetries) {
             await new Promise(resolve => setTimeout(resolve, waitTime))
             continue
@@ -104,7 +104,7 @@ export class EmbeddingService {
         if (!response.ok) {
           const errorText = await response.text()
           console.error('Embedding API error response:', errorText)
-          
+
           // If embeddings endpoint fails, fall back based on config
           if (this.embeddingsConfig!.fallback.enabled) {
             console.warn('Embeddings endpoint not available, using fallback')
@@ -125,7 +125,7 @@ export class EmbeddingService {
           }
           throw new Error('Invalid JSON response from embedding API')
         }
-        
+
         if (!data.data || !data.data[0] || !data.data[0].embedding) {
           console.warn('Invalid embedding response format, using fallback')
           return this.generateFallbackEmbedding(text)
@@ -146,7 +146,7 @@ export class EmbeddingService {
         await new Promise(resolve => setTimeout(resolve, waitTime))
       }
     }
-    
+
     // This should never be reached, but just in case
     return this.generateFallbackEmbedding(text)
   }
@@ -173,12 +173,12 @@ export class EmbeddingService {
     const dimensions = this.embeddingsConfig?.dimensions || 1536
     const hash = this.simpleHash(text)
     const embedding = new Array(dimensions)
-    
+
     // Fill with pseudo-random values based on text hash
     for (let i = 0; i < embedding.length; i++) {
       embedding[i] = Math.sin(hash + i) * 0.5
     }
-    
+
     return embedding
   }
 
@@ -256,7 +256,7 @@ export class EmbeddingService {
       if (!response.ok) {
         const errorText = await response.text()
         console.error('Batch embedding API error response:', errorText)
-        
+
         // Fall back based on config
         if (this.embeddingsConfig.fallback.enabled) {
           console.warn('Batch embeddings endpoint not available, using fallback')
@@ -277,7 +277,7 @@ export class EmbeddingService {
         }
         throw new Error('Invalid JSON response from batch embedding API')
       }
-      
+
       if (!data.data || !Array.isArray(data.data)) {
         console.warn('Invalid batch embedding response format, using fallback')
         return texts.map(text => this.generateFallbackEmbedding(text))

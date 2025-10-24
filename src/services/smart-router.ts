@@ -6,6 +6,7 @@ import { getMCPToolsService } from './mcp-tools'
 import { getLLMService } from './llm-service'
 import { getConversationManager } from './conversation'
 import { getMCPInitializer, isMCPSystemReady } from './mcp-initializer'
+import { getErrorHandlingService } from './error-handling-service'
 
 /**
  * 智能路由响应接口
@@ -95,10 +96,10 @@ export class SmartRouter {
       // 第1步：Smart Router 分析用户意图
       if (enableMCPFirst) {
         console.log('Step 1: Smart Router analyzing user intent for MCP tools')
-        
+
         const intentRecognizer = getMCPIntentRecognizer()
         const intent = await intentRecognizer.recognizeIntent(userMessage)
-        
+
         console.log(`Intent recognition result:`, {
           needsMCP: intent.needsMCP,
           confidence: intent.confidence,
@@ -109,7 +110,7 @@ export class SmartRouter {
         // 第2步：如果Smart Router识别出需要MCP工具且置信度足够
         if (intent.needsMCP && intent.confidence >= mcpConfidenceThreshold && intent.suggestedTool) {
           console.log(`Step 2: Smart Router decided to use MCP tool directly: ${intent.suggestedTool}`)
-          
+
           try {
             const mcpResult = await this.executeMCPTool(
               intent.suggestedTool,
@@ -128,7 +129,7 @@ export class SmartRouter {
             }
           } catch (error) {
             console.error(`MCP tool execution failed:`, error)
-            
+
             if (!enableLLMFallback) {
               throw error
             }
@@ -222,9 +223,9 @@ export class SmartRouter {
       // 格式化响应
       let response = ''
       if (executionResult.success && executionResult.result) {
-        response = this.formatMCPResult(toolName, executionResult.result, params)
+        response = await this.formatMCPResult(toolName, executionResult.result, params)
       } else {
-        response = this.formatMCPError(toolName, executionResult.error?.message || '未知错误', params)
+        response = await this.formatMCPError(toolName, executionResult.error?.message || '未知错误', params)
       }
 
       // 添加助手响应到会话
@@ -331,7 +332,7 @@ export class SmartRouter {
   /**
    * 格式化MCP工具执行结果
    */
-  private formatMCPResult(toolName: string, result: any, params: Record<string, any>): string {
+  private async formatMCPResult(toolName: string, result: any, params: Record<string, any>): Promise<string> {
     try {
       // 处理MCP标准响应格式
       if (result && result.content && Array.isArray(result.content)) {
@@ -347,16 +348,16 @@ export class SmartRouter {
             if (parsedContent && typeof parsedContent === 'object') {
               if ('output' in parsedContent) {
                 // 如果是包含output字段的JSON，递归处理
-                return this.formatMCPResult(toolName, parsedContent, params)
+                return await this.formatMCPResult(toolName, parsedContent, params)
               } else {
                 // 其他JSON对象，直接处理
-                return this.formatMCPResult(toolName, parsedContent, params)
+                return await this.formatMCPResult(toolName, parsedContent, params)
               }
             }
           } catch {
             // 不是JSON，直接处理文本
           }
-          
+
           return this.addContextToResult(toolName, this.formatToolOutput(toolName, textContent), params)
         }
       }
@@ -365,7 +366,7 @@ export class SmartRouter {
       if (result && typeof result === 'object' && 'output' in result) {
         const output = result.output || ''
         const returnCode = result.rc !== undefined ? result.rc : null
-        
+
         // 如果执行成功 (rc = 0)，直接返回格式化的输出
         if (returnCode === 0 || returnCode === null) {
           return this.addContextToResult(toolName, this.formatToolOutput(toolName, output), params)
@@ -385,15 +386,15 @@ export class SmartRouter {
         // 检查是否是错误对象
         if (result.error) {
           const errorMessage = typeof result.error === 'string' ? result.error : JSON.stringify(result.error)
-          return this.formatMCPError(toolName, errorMessage, params)
+          return await this.formatMCPError(toolName, errorMessage, params)
         }
-        
+
         // 特殊处理某些工具的JSON响应
         const specialFormatted = this.formatSpecialToolResponse(toolName, result)
         if (specialFormatted) {
           return this.addContextToResult(toolName, specialFormatted, params)
         }
-        
+
         const formattedResult = JSON.stringify(result, null, 2)
         return this.addContextToResult(toolName, formattedResult, params)
       }
@@ -508,7 +509,7 @@ export class SmartRouter {
     if (result.success && result.solution) {
       const solution = result.solution
       let board = ''
-      
+
       // 生成棋盘显示
       for (let row = 0; row < solution.length; row++) {
         let rowStr = ''
@@ -521,7 +522,7 @@ export class SmartRouter {
         }
         board += rowStr.trim() + '\n'
       }
-      
+
       return `✅ **找到解决方案!**\n\n**棋盘布局:**\n\`\`\`\n${board}\`\`\`\n\n**解向量:** [${solution.join(', ')}]\n\n每个数字表示该行皇后所在的列位置。`
     } else if (result.error) {
       return `❌ **求解失败:** ${result.error}`
@@ -537,17 +538,17 @@ export class SmartRouter {
     if (result.success && result.solution) {
       const solution = result.solution
       let grid = ''
-      
+
       for (let i = 0; i < 9; i++) {
         if (i % 3 === 0 && i > 0) grid += '------+-------+------\n'
-        
+
         for (let j = 0; j < 9; j++) {
           if (j % 3 === 0 && j > 0) grid += '| '
           grid += solution[i][j] + ' '
         }
         grid += '\n'
       }
-      
+
       return `✅ **数独已解决!**\n\n\`\`\`\n${grid}\`\`\``
     } else if (result.error) {
       return `❌ **求解失败:** ${result.error}`
@@ -584,22 +585,63 @@ export class SmartRouter {
       'transportation': '运输问题',
       'assignment': '分配问题'
     }
-    
+
     return displayNames[exampleType] || exampleType
   }
 
   /**
    * 格式化MCP工具执行错误
    */
-  private formatMCPError(toolName: string, errorMessage: string, params: Record<string, any>): string {
+  private async formatMCPError(toolName: string, errorMessage: string, params: Record<string, any>): Promise<string> {
     try {
-      // 解析不同类型的错误
-      const formattedError = this.parseAndFormatError(toolName, errorMessage, params)
-      return this.addContextToResult(toolName, formattedError, params)
+      // 首先尝试使用ErrorHandlingService获取带示例的错误格式
+      const { getErrorHandlingService } = await import('./error-handling-service')
+      const errorHandlingService = getErrorHandlingService()
+
+      // 确定错误类型
+      const errorType = this.determineErrorType(errorMessage)
+
+      // 获取格式化的错误消息（包含示例和建议）
+      const formattedWithExamples = await errorHandlingService.formatErrorWithExamples(
+        toolName,
+        errorMessage,
+        errorType
+      )
+
+      return this.addContextToResult(toolName, formattedWithExamples, params)
     } catch (error) {
-      console.error('Error formatting MCP error:', error)
-      return this.addContextToResult(toolName, `❌ **执行失败**\n\n${errorMessage}`, params)
+      console.error('Error formatting MCP error with examples:', error)
+      // 回退到原有的错误格式化逻辑
+      try {
+        const formattedError = this.parseAndFormatError(toolName, errorMessage, params)
+        return this.addContextToResult(toolName, formattedError, params)
+      } catch (fallbackError) {
+        console.error('Error in fallback formatting:', fallbackError)
+        return this.addContextToResult(toolName, `❌ **执行失败**\n\n${errorMessage}`, params)
+      }
     }
+  }
+
+  /**
+   * 确定错误类型
+   */
+  private determineErrorType(errorMessage: string): string | undefined {
+    if (errorMessage.includes('missing') && errorMessage.includes('required')) {
+      return 'missing_parameters'
+    }
+    if (errorMessage.includes('Invalid arguments') || errorMessage.includes('invalid')) {
+      return 'invalid_arguments'
+    }
+    if (errorMessage.includes('TypeError') || errorMessage.includes('type')) {
+      return 'type_error'
+    }
+    if (errorMessage.includes('ValueError') || errorMessage.includes('value')) {
+      return 'value_error'
+    }
+    if (errorMessage.includes('connection') || errorMessage.includes('timeout')) {
+      return 'connection_error'
+    }
+    return undefined
   }
 
   /**
@@ -645,7 +687,7 @@ export class SmartRouter {
 
     let formatted = `❌ **参数缺失**\n\n`
     formatted += `工具 **${toolName}** 需要以下必需参数：\n\n`
-    
+
     missingParams.forEach((param, index) => {
       formatted += `${index + 1}. **${param}**`
       if (suggestions[param]) {
@@ -744,7 +786,7 @@ export class SmartRouter {
    */
   private extractMissingParameters(errorMessage: string): string[] {
     const params: string[] = []
-    
+
     // 匹配 "missing X required positional arguments: 'param1' and 'param2'"
     const match1 = errorMessage.match(/missing \d+ required positional arguments?: (.+)/i)
     if (match1) {
@@ -775,7 +817,7 @@ export class SmartRouter {
     // 基于工具名称和参数名称生成建议
     missingParams.forEach(param => {
       const paramLower = param.toLowerCase()
-      
+
       if (paramLower.includes('return') || paramLower.includes('expected')) {
         suggestions[param] = '预期收益率数组，例如 [0.1, 0.12, 0.08]'
       } else if (paramLower.includes('covariance') || paramLower.includes('matrix')) {
@@ -877,8 +919,8 @@ export class SmartRouter {
   /**
    * 测试MCP结果格式化 (公共方法，用于测试)
    */
-  public testFormatMCPResult(toolName: string, result: any, params: Record<string, any> = {}): string {
-    return this.formatMCPResult(toolName, result, params)
+  public async testFormatMCPResult(toolName: string, result: any, params: Record<string, any> = {}): Promise<string> {
+    return await this.formatMCPResult(toolName, result, params)
   }
 }
 

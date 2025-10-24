@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+import AdminNavigation from '@/components/AdminNavigation'
 
 interface ToolPattern {
   pattern: string
@@ -129,6 +130,8 @@ export default function DynamicPatternsPage() {
 
   return (
     <div className="container mx-auto p-6 max-w-7xl">
+      <AdminNavigation title="动态模式学习管理" />
+      
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-2">动态模式学习管理</h1>
         <p className="text-muted-foreground">

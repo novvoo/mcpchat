@@ -4,6 +4,7 @@ import { getDatabaseService } from '@/services/database'
 export async function GET() {
   try {
     const dbService = getDatabaseService()
+    await dbService.initialize()
     const client = await dbService.getClient()
     
     if (!client) {

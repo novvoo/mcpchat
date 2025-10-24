@@ -295,15 +295,25 @@ export class SampleProblemsService {
 
       try {
         const result = await client.query(`
-          SELECT template_data 
-          FROM problem_templates 
-          WHERE tool_name = $1 AND active = true
+          SELECT 
+            template_name,
+            tool_name,
+            category,
+            difficulty,
+            title_template,
+            description_template,
+            parameter_generators,
+            expected_solution_template,
+            keywords_template,
+            generation_rules
+          FROM sample_problem_templates 
+          WHERE tool_name = $1 AND is_active = true
           ORDER BY priority DESC
           LIMIT 1
         `, [toolName])
 
         if (result.rows.length > 0) {
-          return result.rows[0].template_data
+          return result.rows[0]
         }
         return null
       } finally {
@@ -321,21 +331,46 @@ export class SampleProblemsService {
   private generateFromTemplate(template: any, tool: any, serverName: string): SampleProblem {
     const toolName = tool.name
     
+    // 生成参数（如果有参数生成器）
+    let parameters = {}
+    if (template.parameter_generators) {
+      try {
+        // 这里可以根据parameter_generators的规则生成实际参数
+        parameters = typeof template.parameter_generators === 'string' 
+          ? JSON.parse(template.parameter_generators) 
+          : template.parameter_generators
+      } catch (error) {
+        console.warn('解析参数生成器失败:', error)
+      }
+    }
+
+    // 处理期望解决方案
+    let expectedSolution = {
+      type: 'result',
+      description: '工具执行结果'
+    }
+    if (template.expected_solution_template) {
+      try {
+        expectedSolution = typeof template.expected_solution_template === 'string'
+          ? JSON.parse(template.expected_solution_template)
+          : template.expected_solution_template
+      } catch (error) {
+        console.warn('解析期望解决方案模板失败:', error)
+      }
+    }
+    
     return {
       id: `mcp-${serverName}-${toolName}-${Date.now()}`,
       category: template.category || 'general',
-      title: template.title || tool.description || toolName,
-      title_en: template.title_en || tool.description || toolName,
-      description: template.description || `使用${toolName}工具处理问题`,
-      description_en: template.description_en || `Use ${toolName} tool to solve problems`,
-      problem_type: template.problem_type || 'general',
+      title: template.title_template || tool.description || toolName,
+      title_en: template.title_template || tool.description || toolName,
+      description: template.description_template || `使用${toolName}工具处理问题`,
+      description_en: template.description_template || `Use ${toolName} tool to solve problems`,
+      problem_type: 'general', // 可以从generation_rules中推断
       difficulty: template.difficulty || 'medium',
-      parameters: template.parameters || {},
-      expected_solution: template.expected_solution || {
-        type: 'result',
-        description: '工具执行结果'
-      },
-      keywords: template.keywords || [toolName, 'tool', 'mcp'],
+      parameters: parameters,
+      expected_solution: expectedSolution,
+      keywords: template.keywords_template || [toolName, 'tool', 'mcp'],
       tool_name: toolName,
       created_at: new Date().toISOString(),
       generation_source: 'template'

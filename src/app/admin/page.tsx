@@ -165,6 +165,14 @@ export default function AdminPage() {
       icon: <Brain className="h-5 w-5" />,
       category: 'test',
       status: 'beta'
+    },
+    {
+      title: '错误处理与示例',
+      description: '演示工具调用失败时如何显示相关示例和建议',
+      href: '/admin/error-examples',
+      icon: <MessageSquare className="h-5 w-5" />,
+      category: 'test',
+      status: 'beta'
     }
   ]
 
