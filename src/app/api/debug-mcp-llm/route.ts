@@ -8,22 +8,22 @@ import { ChatMessage } from '@/types'
 function generateTestInputForProblem(problem: any): string | null {
   const toolName = problem.tool_name
   const params = problem.parameters || {}
-  
+
   switch (toolName) {
     case 'solve_n_queens':
       const n = params.n || 8
       return `解决${n}皇后问题`
-      
+
     case 'solve_sudoku':
       if (params.puzzle) {
         return `帮我解这个数独：${JSON.stringify(params.puzzle)}`
       }
       return '帮我解数独'
-      
+
     case 'run_example':
       const exampleType = params.example_type || 'basic'
       return `run example ${exampleType}`
-      
+
     default:
       if (problem.title) {
         return `请处理：${problem.title}`
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
         const routerResponse = await smartRouter.processMessage(message, undefined, {
           enableMCPFirst: true,
           enableLLMFallback: true,
-          mcpConfidenceThreshold: 0.5  // 降低阈值到50%，更容易触发MCP工具
+          mcpConfidenceThreshold: 0.4  // 调整为与新置信度系统匹配
         })
         const routerEndTime = Date.now()
 
@@ -372,7 +372,7 @@ When you need to use a tool, respond with a tool call.`
         const { getSampleProblemsService } = await import('@/services/sample-problems-service')
         const sampleProblemsService = getSampleProblemsService()
         const problems = await sampleProblemsService.getRecommendedProblems(3)
-        
+
         problems.forEach(problem => {
           const testInput = generateTestInputForProblem(problem)
           if (testInput) {
@@ -389,16 +389,16 @@ When you need to use a tool, respond with a tool call.`
         try {
           const { getSampleProblemsService } = await import('@/services/sample-problems-service')
           const sampleProblemsService = getSampleProblemsService()
-          const fallbackProblems = await sampleProblemsService.searchProblems({ 
-            tool_name: 'solve_n_queens', 
-            limit: 1 
+          const fallbackProblems = await sampleProblemsService.searchProblems({
+            tool_name: 'solve_n_queens',
+            limit: 1
           })
-          
+
           const fallbackCases = [
             { input: "帮我解数独", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" },
             { input: "运行一个示例", expectedFlow: "mcp", expectedBehavior: "should_use_mcp_directly" }
           ]
-          
+
           if (fallbackProblems.length > 0) {
             const testInput = generateTestInputForProblem(fallbackProblems[0])
             if (testInput) {
@@ -409,7 +409,7 @@ When you need to use a tool, respond with a tool call.`
               })
             }
           }
-          
+
           testCases.unshift(...fallbackCases)
         } catch {
           // 最终备用

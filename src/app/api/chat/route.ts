@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       result = await smartRouter.processMessage(message, conversationId, {
         enableMCPFirst: true,
         enableLLMFallback: true,
-        mcpConfidenceThreshold: 0.5,  // 降低阈值，提高MCP工具使用率
+        mcpConfidenceThreshold: 0.4,  // 调整为与新置信度系统匹配
         maxToolCalls: 5
       })
 

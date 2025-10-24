@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
           intent: routingIntent,
           availableTools,
           mcpConnected,
-          wouldUseMCP: routingIntent.shouldUseMCP && routingIntent.confidence >= 0.6,
+          wouldUseMCP: routingIntent.needsMCP && routingIntent.confidence >= 0.4,
           reasoning: routingIntent.reasoning
         }
         break
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
         const response = await smartRouter.processMessage(message, undefined, {
           enableMCPFirst: true,
           enableLLMFallback: true,
-          mcpConfidenceThreshold: 0.5,  // 降低阈值，提高MCP工具使用率
+          mcpConfidenceThreshold: 0.4,  // 调整为与新置信度系统匹配
           maxToolCalls: 3
         })
         

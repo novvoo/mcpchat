@@ -183,49 +183,7 @@ export default function TestHttpMCPPage() {
     return allTools.map(tool => tool.name)
   }
 
-  // 根据工具的inputSchema生成默认参数（仅用于必需参数）
-  const generateDefaultArgs = (tool: Tool) => {
-    if (!tool.inputSchema || !tool.inputSchema.properties) {
-      return {}
-    }
 
-    const defaultArgs: Record<string, any> = {}
-    const required = tool.inputSchema.required || []
-    
-    // 只为必需的参数生成默认值
-    for (const propName of required) {
-      const propSchema = tool.inputSchema.properties[propName] as any
-      
-      if (propSchema) {
-        if (propSchema.default !== undefined) {
-          defaultArgs[propName] = propSchema.default
-        } else if (propSchema.enum && propSchema.enum.length > 0) {
-          defaultArgs[propName] = propSchema.enum[0]
-        } else {
-          switch (propSchema.type) {
-            case 'string':
-              defaultArgs[propName] = ''
-              break
-            case 'number':
-            case 'integer':
-              defaultArgs[propName] = 0
-              break
-            case 'boolean':
-              defaultArgs[propName] = false
-              break
-            case 'array':
-              defaultArgs[propName] = []
-              break
-            case 'object':
-              defaultArgs[propName] = {}
-              break
-          }
-        }
-      }
-    }
-
-    return defaultArgs
-  }
 
   // 根据真实的inputSchema生成示例参数
   const getToolExamples = (tool: Tool) => {
@@ -253,8 +211,10 @@ export default function TestHttpMCPPage() {
         switch (schema.type) {
           case 'string':
             // 为特定参数生成有意义的示例
-            if (propName === 'example') {
+            if (propName === 'example_name') {
               examples[propName] = 'lp'  // run_example工具的默认示例
+            } else if (propName === 'package') {
+              examples[propName] = 'gurddy'  // install工具的默认包名
             } else {
               examples[propName] = ''
             }
@@ -328,7 +288,7 @@ export default function TestHttpMCPPage() {
     // 使用经过测试验证的参数示例
     const knownExamples: Record<string, any> = {
       'info': {},
-      'run_example': { 'example_name': 'lp' },  // 实际参数名是 example_name，不是 example
+      'run_example': { 'example_name': 'lp' },  // 修正：参数名是 example_name
       'solve_n_queens': { 'n': 8 },
       'solve_sudoku': { 
         'puzzle': [

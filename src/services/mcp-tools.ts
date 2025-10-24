@@ -33,6 +33,10 @@ export class MCPToolsService {
   async getAvailableTools(): Promise<Tool[]> {
     try {
       const mcpManager = getMCPManager()
+      
+      // 确保MCP管理器已初始化
+      await mcpManager.initialize()
+      
       const tools = await mcpManager.listTools()
       
       // Add server information to tools

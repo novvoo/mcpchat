@@ -94,33 +94,59 @@ export class MCPIntentRecognizer {
       }
     }
 
-    // 使用动态元数据服务获取工具建议
+    // 尝试使用动态元数据服务获取工具建议
     const metadataService = getToolMetadataService()
-    const suggestions = await metadataService.getToolSuggestions(userInput)
-
-    if (suggestions.length === 0) {
-      return {
-        needsMCP: false,
-        confidence: 0,
-        reasoning: 'No matching tools found in metadata'
-      }
+    let suggestions = []
+    
+    try {
+      suggestions = await metadataService.getToolSuggestions(userInput)
+    } catch (error) {
+      console.warn('Metadata service failed, falling back to simple recognizer:', error)
+      
+      // 使用简单识别器作为备选
+      const { getSimpleIntentRecognizer } = await import('./simple-intent-recognizer')
+      const simpleRecognizer = getSimpleIntentRecognizer()
+      return await simpleRecognizer.recognizeIntent(userInput)
     }
 
-    // 选择最佳匹配
+    if (suggestions.length === 0) {
+      console.warn('No suggestions from metadata service, falling back to simple recognizer')
+      
+      // 使用简单识别器作为备选
+      const { getSimpleIntentRecognizer } = await import('./simple-intent-recognizer')
+      const simpleRecognizer = getSimpleIntentRecognizer()
+      return await simpleRecognizer.recognizeIntent(userInput)
+    }
+
+    // 选择最佳匹配并校准置信度
     const bestSuggestion = suggestions[0]
+    const calibratedConfidence = this.calibrateConfidence(bestSuggestion.toolName, bestSuggestion.confidence)
     
     // 提取参数
     const parameters = await this.extractParameters(bestSuggestion.toolName, userInput)
 
-    // 设置置信度阈值
-    const CONFIDENCE_THRESHOLD = 0.3 // 降低阈值，因为我们现在有更智能的匹配
+    // 改进的置信度阈值设置
+    const HIGH_CONFIDENCE_THRESHOLD = 0.7  // 高置信度：直接执行
+    const MEDIUM_CONFIDENCE_THRESHOLD = 0.4 // 中等置信度：可以执行但需要更多验证
+    const LOW_CONFIDENCE_THRESHOLD = 0.2   // 低置信度：不建议执行
+
+    // 根据校准后的置信度等级决定是否使用MCP工具
+    const shouldUseMCP = calibratedConfidence >= MEDIUM_CONFIDENCE_THRESHOLD
+    
+    // 生成更详细的推理说明
+    let confidenceLevel = 'low'
+    if (calibratedConfidence >= HIGH_CONFIDENCE_THRESHOLD) {
+      confidenceLevel = 'high'
+    } else if (calibratedConfidence >= MEDIUM_CONFIDENCE_THRESHOLD) {
+      confidenceLevel = 'medium'
+    }
 
     return {
-      needsMCP: bestSuggestion.confidence >= CONFIDENCE_THRESHOLD,
-      suggestedTool: bestSuggestion.confidence >= CONFIDENCE_THRESHOLD ? bestSuggestion.toolName : undefined,
-      confidence: bestSuggestion.confidence,
+      needsMCP: shouldUseMCP,
+      suggestedTool: shouldUseMCP ? bestSuggestion.toolName : undefined,
+      confidence: calibratedConfidence,
       parameters,
-      reasoning: `Dynamic metadata matched tool ${bestSuggestion.toolName} with keywords: ${bestSuggestion.keywords.join(', ')}`
+      reasoning: `Tool ${bestSuggestion.toolName} matched with ${confidenceLevel} confidence (${(calibratedConfidence * 100).toFixed(1)}%, raw: ${(bestSuggestion.confidence * 100).toFixed(1)}%) based on keywords: ${bestSuggestion.keywords.join(', ')}`
     }
   }
 
@@ -140,7 +166,7 @@ export class MCPIntentRecognizer {
       } else if (toolName === 'run_example') {
         // 使用动态参数映射
         const exampleType = await this.extractExampleType(userInput, metadataService)
-        params.example_type = exampleType
+        params.example_name = exampleType  // 修正：参数名应该是 example_name
       } else if (toolName === 'echo') {
         params.message = this.extractEchoMessage(userInput)
       }
@@ -306,17 +332,45 @@ export class MCPIntentRecognizer {
   }
 
   /**
+   * 校准置信度 - 根据工具的历史成功率调整置信度
+   */
+  private calibrateConfidence(toolName: string, rawConfidence: number): number {
+    // 工具成功率映射 (可以从数据库或配置中获取)
+    const toolSuccessRates: Record<string, number> = {
+      'solve_n_queens': 0.95,      // N皇后问题通常很准确
+      'solve_sudoku': 0.90,        // 数独求解也很准确
+      'run_example': 0.85,         // 示例运行相对可靠
+      'echo': 0.98,                // Echo最简单最可靠
+      'info': 0.99,                // Info查询最可靠
+      'solve_24_point_game': 0.80, // 24点游戏稍微复杂
+      'solve_chicken_rabbit_problem': 0.88, // 鸡兔同笼问题较准确
+      'install': 0.75              // 安装操作可能有环境依赖
+    }
+
+    const successRate = toolSuccessRates[toolName] || 0.7 // 默认成功率70%
+    
+    // 使用贝叶斯方法校准置信度
+    // 校准后的置信度 = 原始置信度 * 成功率 + 调整因子
+    const calibratedConfidence = rawConfidence * successRate + (1 - successRate) * 0.1
+    
+    // 确保置信度在合理范围内
+    return Math.max(0.05, Math.min(0.98, calibratedConfidence))
+  }
+
+  /**
    * 获取统计信息
    */
   getStats(): {
     totalTools: number
     keywordMappings: number
     lastUpdate: Date
+    confidenceCalibration: boolean
   } {
     return {
       totalTools: this.availableTools.length,
       keywordMappings: 0, // 现在使用动态元数据，不再有固定的关键词映射
-      lastUpdate: new Date()
+      lastUpdate: new Date(),
+      confidenceCalibration: true // 表示启用了置信度校准
     }
   }
 }

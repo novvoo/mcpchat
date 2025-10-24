@@ -2,9 +2,10 @@
 
 import { Tool } from '@/types'
 import { getMCPToolsService } from './mcp-tools'
+import { getToolMetadataService, ToolKeywordMapping } from './tool-metadata-service'
 
 /**
- * Tool detection patterns and scoring
+ * Tool detection patterns and scoring (deprecated - now using database)
  */
 interface ToolPattern {
   keywords: string[]
@@ -132,34 +133,42 @@ export class ToolCallDetector {
   }
 
   /**
-   * Analyze message and suggest tools
+   * Analyze message and suggest tools using database metadata
    */
   async analyzeMessage(message: string): Promise<ToolSuggestion[]> {
     try {
       // Update available tools
       await this.updateAvailableTools()
       
-      const messageLower = message.toLowerCase()
+      // Use database-driven tool suggestions
+      const toolMetadataService = getToolMetadataService()
+      await toolMetadataService.initialize()
+      
+      // Ensure keyword mappings exist
+      await toolMetadataService.ensureKeywordMappingsExist()
+      
+      // Get tool suggestions from database
+      const toolMappings = await toolMetadataService.getToolSuggestions(message)
+      
       const suggestions: ToolSuggestion[] = []
-
-      // Check each pattern
-      for (const pattern of this.patterns) {
-        const score = this.calculatePatternScore(messageLower, pattern)
-        
-        if (score > 0.3) { // Minimum confidence threshold
-          for (const toolName of pattern.toolNames) {
-            // Check if tool is available
-            const tool = this.availableTools.find(t => t.name === toolName)
-            if (tool) {
-              suggestions.push({
-                toolName,
-                confidence: score,
-                reason: this.generateReason(pattern, score),
-                suggestedParameters: this.suggestParameters(toolName, message)
-              })
-            }
-          }
+      
+      for (const mapping of toolMappings) {
+        // Check if tool is available
+        const tool = this.availableTools.find(t => t.name === mapping.toolName)
+        if (tool && mapping.confidence > 0.1) { // Minimum confidence threshold
+          suggestions.push({
+            toolName: mapping.toolName,
+            confidence: mapping.confidence,
+            reason: this.generateReasonFromKeywords(mapping.keywords, mapping.confidence),
+            suggestedParameters: await this.suggestParametersFromDatabase(mapping.toolName, message)
+          })
         }
+      }
+
+      // Fallback to hardcoded patterns if no database results
+      if (suggestions.length === 0) {
+        console.log('No database suggestions found, falling back to hardcoded patterns')
+        return this.analyzeMessageWithPatterns(message)
       }
 
       // Sort by confidence and remove duplicates
@@ -168,7 +177,8 @@ export class ToolCallDetector {
 
     } catch (error) {
       console.error('Error analyzing message for tool suggestions:', error)
-      return []
+      // Fallback to hardcoded patterns on error
+      return this.analyzeMessageWithPatterns(message)
     }
   }
 
@@ -204,7 +214,17 @@ export class ToolCallDetector {
   }
 
   /**
-   * Generate reason for suggestion
+   * Generate reason for suggestion from database keywords
+   */
+  private generateReasonFromKeywords(keywords: string[], confidence: number): string {
+    const confidencePercent = Math.round(confidence * 100)
+    const displayKeywords = keywords.slice(0, 3)
+    
+    return `${confidencePercent}% confidence based on keywords: ${displayKeywords.join(', ')}`
+  }
+
+  /**
+   * Generate reason for suggestion (legacy pattern-based)
    */
   private generateReason(pattern: ToolPattern, score: number): string {
     const confidence = Math.round(score * 100)
@@ -214,7 +234,31 @@ export class ToolCallDetector {
   }
 
   /**
-   * Suggest parameters for specific tools
+   * Suggest parameters using database mappings
+   */
+  private async suggestParametersFromDatabase(toolName: string, message: string): Promise<Record<string, any> | undefined> {
+    try {
+      const toolMetadataService = getToolMetadataService()
+      
+      // Try to get parameter mapping from database
+      const words = message.toLowerCase().split(/\s+/)
+      for (const word of words) {
+        const mapping = await toolMetadataService.getParameterMapping(toolName, word)
+        if (mapping) {
+          return { [mapping]: word }
+        }
+      }
+      
+      // Fallback to legacy parameter suggestion
+      return this.suggestParameters(toolName, message)
+    } catch (error) {
+      console.error('Error suggesting parameters from database:', error)
+      return this.suggestParameters(toolName, message)
+    }
+  }
+
+  /**
+   * Suggest parameters for specific tools (legacy method)
    */
   private suggestParameters(toolName: string, message: string): Record<string, any> | undefined {
     const messageLower = message.toLowerCase()
@@ -334,6 +378,38 @@ export class ToolCallDetector {
   resetPatterns(): void {
     this.patterns = []
     this.initializePatterns()
+  }
+
+  /**
+   * Fallback method using hardcoded patterns (legacy)
+   */
+  private async analyzeMessageWithPatterns(message: string): Promise<ToolSuggestion[]> {
+    const messageLower = message.toLowerCase()
+    const suggestions: ToolSuggestion[] = []
+
+    // Check each pattern
+    for (const pattern of this.patterns) {
+      const score = this.calculatePatternScore(messageLower, pattern)
+      
+      if (score > 0.3) { // Minimum confidence threshold
+        for (const toolName of pattern.toolNames) {
+          // Check if tool is available
+          const tool = this.availableTools.find(t => t.name === toolName)
+          if (tool) {
+            suggestions.push({
+              toolName,
+              confidence: score,
+              reason: this.generateReason(pattern, score),
+              suggestedParameters: this.suggestParameters(toolName, message)
+            })
+          }
+        }
+      }
+    }
+
+    // Sort by confidence and remove duplicates
+    const uniqueSuggestions = this.deduplicateSuggestions(suggestions)
+    return uniqueSuggestions.sort((a, b) => b.confidence - a.confidence)
   }
 }
 

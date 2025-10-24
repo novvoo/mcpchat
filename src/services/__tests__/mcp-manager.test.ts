@@ -141,7 +141,7 @@ describe('MCPServer', () => {
     })
 
     it('executes tool successfully', async () => {
-      const result = await server.callTool('run_example', { example_type: 'test' })
+      const result = await server.callTool('run_example', { example_name: 'test' })
       
       expect(result.content).toBeDefined()
       expect(result.content[0].type).toBe('text')
@@ -228,7 +228,7 @@ describe('MCPManager', () => {
       }, 0)
       await manager.initialize()
       
-      const result = await manager.executeTool('run_example', { example_type: 'test' })
+      const result = await manager.executeTool('run_example', { example_name: 'test' })
       expect(result).toBeDefined()
       expect(result.content).toBeDefined()
     })

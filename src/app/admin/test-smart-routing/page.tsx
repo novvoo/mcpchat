@@ -24,10 +24,10 @@ interface SmartRoutingStatus {
 }
 
 interface IntentResult {
-    shouldUseMCP: boolean
-    matchedTool?: string
+    needsMCP: boolean
+    suggestedTool?: string
     confidence: number
-    extractedParams?: Record<string, any>
+    parameters?: Record<string, any>
     reasoning?: string
 }
 
@@ -174,7 +174,7 @@ export default function TestSmartRoutingPage() {
                 return '帮我解数独'
                 
             case 'run_example':
-                const exampleType = params.example_type || 'basic'
+                const exampleType = params.example_name || 'basic'
                 return `run example ${exampleType}`
                 
             default:
@@ -573,8 +573,8 @@ export default function TestSmartRoutingPage() {
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
                                         <p className="text-sm font-medium">是否使用MCP</p>
-                                        <Badge variant={intentResult.shouldUseMCP ? "default" : "secondary"}>
-                                            {intentResult.shouldUseMCP ? "是" : "否"}
+                                        <Badge variant={intentResult.needsMCP ? "default" : "secondary"}>
+                                            {intentResult.needsMCP ? "是" : "否"}
                                         </Badge>
                                     </div>
 
@@ -585,19 +585,19 @@ export default function TestSmartRoutingPage() {
                                         </Badge>
                                     </div>
 
-                                    {intentResult.matchedTool && (
+                                    {intentResult.suggestedTool && (
                                         <div>
-                                            <p className="text-sm font-medium">匹配工具</p>
-                                            <Badge variant="default">{intentResult.matchedTool}</Badge>
+                                            <p className="text-sm font-medium">建议工具</p>
+                                            <Badge variant="default">{intentResult.suggestedTool}</Badge>
                                         </div>
                                     )}
                                 </div>
 
-                                {intentResult.extractedParams && Object.keys(intentResult.extractedParams).length > 0 && (
+                                {intentResult.parameters && Object.keys(intentResult.parameters).length > 0 && (
                                     <div>
                                         <p className="text-sm font-medium mb-2">提取的参数</p>
                                         <pre className="bg-muted p-3 rounded text-xs overflow-auto">
-                                            {JSON.stringify(intentResult.extractedParams, null, 2)}
+                                            {JSON.stringify(intentResult.parameters, null, 2)}
                                         </pre>
                                     </div>
                                 )}

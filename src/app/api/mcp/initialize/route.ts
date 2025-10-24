@@ -1,36 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { MCPServerManager } from '@/services/mcp-server-manager'
+import { getMCPManager } from '@/services/mcp-manager'
 import { getConfigLoader } from '@/services/config'
 
 export async function POST(request: NextRequest) {
   try {
-    const configLoader = getConfigLoader()
-    await configLoader.loadConfig()
+    const mcpManager = getMCPManager()
     
-    const serverConfigs = configLoader.getAllMCPServerConfigs()
-    const enabledServers = configLoader.getEnabledServers()
-    const serverManager = MCPServerManager.getInstance()
+    // 初始化MCP管理器，这会自动加载配置并初始化所有启用的服务器
+    await mcpManager.initialize()
     
-    const results = []
+    // 获取服务器状态
+    const serverStatus = mcpManager.getServerStatus()
     
-    for (const serverName of enabledServers) {
-      const config = serverConfigs[serverName]
-      if (config) {
-        try {
-          await serverManager.initializeServer(serverName, config)
-          results.push({
-            server: serverName,
-            success: true
-          })
-        } catch (error) {
-          results.push({
-            server: serverName,
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-          })
-        }
-      }
-    }
+    const results = Object.entries(serverStatus).map(([serverName, status]) => ({
+      server: serverName,
+      success: status.status === 'connected'
+    }))
     
     return NextResponse.json({
       success: true,

@@ -661,23 +661,41 @@ export class ToolMetadataService {
             // 去重
             const uniqueWords = [...new Set(inputWords)]
 
-            // 使用关键词匹配查找相关工具
+            // 使用改进的关键词匹配查找相关工具
             const result = await client.query(`
         SELECT DISTINCT t.name as tool_name, 
                array_agg(DISTINCT tkm.keyword) as keywords,
-               -- 计算相关性得分：优先考虑特定关键词匹配，并标准化到0-1范围
-               LEAST(1.0, (
-                 -- 精确匹配得分 (权重最高)
-                 COUNT(CASE WHEN tkm.keyword = ANY($2) THEN 1 END) * 0.3 +
-                 -- 特定关键词额外加分 (如"8皇后"、"皇后问题"等)
-                 COUNT(CASE WHEN tkm.keyword IN ('8皇后', '皇后问题', 'n皇后', '八皇后', 'queens problem', 'n queens') AND tkm.keyword = ANY($2) THEN 1 END) * 0.4 +
-                 -- 部分匹配得分
-                 COUNT(CASE WHEN $1 ILIKE '%' || tkm.keyword || '%' THEN 1 END) * 0.2 +
-                 -- 关键词长度匹配得分 (更长的关键词权重更高)
-                 SUM(CASE WHEN tkm.keyword = ANY($2) THEN LENGTH(tkm.keyword) * 0.01 ELSE 0 END) +
-                 -- 基础置信度
-                 0.1
-               ) / GREATEST(1, COUNT(DISTINCT tkm.keyword) * 0.5)) as confidence
+               -- 改进的置信度计算：更准确的匹配评分
+               CASE 
+                 -- 完全精确匹配 (最高置信度 0.8-1.0)
+                 WHEN COUNT(CASE WHEN tkm.keyword = ANY($2) THEN 1 END) > 0 THEN
+                   LEAST(1.0, 
+                     0.8 + -- 基础精确匹配分数
+                     (COUNT(CASE WHEN tkm.keyword = ANY($2) THEN 1 END) * 0.05) + -- 多关键词匹配奖励
+                     (CASE 
+                       WHEN MAX(CASE WHEN tkm.keyword = ANY($2) THEN LENGTH(tkm.keyword) ELSE 0 END) >= 6 
+                       THEN 0.1 -- 长关键词奖励
+                       ELSE 0 
+                     END)
+                   )
+                 -- 部分匹配 (中等置信度 0.4-0.7)
+                 WHEN COUNT(CASE WHEN $1 ILIKE '%' || tkm.keyword || '%' THEN 1 END) > 0 THEN
+                   LEAST(0.7,
+                     0.4 + -- 基础部分匹配分数
+                     (COUNT(CASE WHEN $1 ILIKE '%' || tkm.keyword || '%' THEN 1 END) * 0.08) + -- 多关键词部分匹配奖励
+                     (CASE 
+                       WHEN MAX(CASE WHEN $1 ILIKE '%' || tkm.keyword || '%' THEN LENGTH(tkm.keyword) ELSE 0 END) >= 4 
+                       THEN 0.1 -- 长关键词奖励
+                       ELSE 0 
+                     END)
+                   )
+                 -- 模糊匹配 (较低置信度 0.1-0.4)
+                 ELSE
+                   LEAST(0.4,
+                     0.1 + -- 基础模糊匹配分数
+                     (COUNT(CASE WHEN tkm.keyword ILIKE ANY($3) THEN 1 END) * 0.05) -- 模糊匹配奖励
+                   )
+               END as confidence
         FROM mcp_tools t
         JOIN tool_keyword_mappings tkm ON t.name = tkm.tool_name
         WHERE tkm.keyword = ANY($2)

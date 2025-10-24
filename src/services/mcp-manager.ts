@@ -409,33 +409,23 @@ export class MCPManager {
         const { MCPServerManager } = await import('./mcp-server-manager')
         const serverManager = MCPServerManager.getInstance()
 
-        // Initialize enabled servers directly
+        // Initialize enabled servers
         for (const serverName of enabledServers) {
           const config = serverConfigs[serverName]
           if (config) {
             try {
-              await serverManager.initializeServer(serverName, config)
-              console.log(`Server ${serverName} initialized successfully`)
-              
-              // Register server in registry
+              // Create and initialize server
               const server = new MCPServer(config)
-              // Server is already initialized by server manager, so update status
-              server['status'].status = 'connected'
-              server['status'].lastPing = new Date()
-              server['lastPing'] = new Date()
-              
-              // Load tools from the server manager
-              const tools = await serverManager.getServerTools(serverName)
-              server['tools'] = tools
+              await server.initialize()
               
               this.registry.servers.set(serverName, server)
+              console.log(`Server ${serverName} initialized and registered successfully`)
             } catch (error) {
               console.error(`Failed to initialize server ${serverName}:`, error)
               
               // Register server with error status
               const server = new MCPServer(config)
-              server['status'].status = 'error'
-              server['status'].error = error instanceof Error ? error.message : 'Unknown error'
+              // The server will have error status from failed initialization
               this.registry.servers.set(serverName, server)
             }
           }

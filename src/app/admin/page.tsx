@@ -85,11 +85,11 @@ export default function AdminPage() {
     },
     {
       title: 'Test Smart Routing',
-      description: '测试智能路由功能，工具选择和执行',
+      description: '测试完整的智能路由功能，包括意图识别、工具选择和执行',
       href: '/admin/test-smart-routing',
       icon: <Route className="h-5 w-5" />,
       category: 'test',
-      status: 'beta'
+      status: 'active'
     },
 
     // 监控页面
@@ -141,6 +141,14 @@ export default function AdminPage() {
       icon: <Server className="h-5 w-5" />,
       category: 'test',
       status: 'active'
+    },
+    {
+      title: '置信度测试',
+      description: '测试和验证意图识别系统的置信度准确性',
+      href: '/admin/confidence-test',
+      icon: <Brain className="h-5 w-5" />,
+      category: 'test',
+      status: 'beta'
     }
   ]
 

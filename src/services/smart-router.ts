@@ -63,7 +63,7 @@ export class SmartRouter {
     const {
       enableMCPFirst = true,
       enableLLMFallback = true,
-      mcpConfidenceThreshold = 0.5,
+      mcpConfidenceThreshold = 0.4,  // 调整为与新置信度系统匹配
       maxToolCalls = 5
     } = options
 
@@ -370,7 +370,7 @@ export class SmartRouter {
     const contextMap: Record<string, string> = {
       'solve_n_queens': `N皇后问题求解结果 (N=${params.n || 8}):\n${result}`,
       'solve_sudoku': `数独求解结果:\n${result}`,
-      'run_example': `示例运行结果 (类型: ${params.example_type || 'basic'}):\n${result}`,
+      'run_example': `示例运行结果 (类型: ${params.example_name || 'basic'}):\n${result}`,
       'echo': `回显结果:\n${result}`
     }
 
