@@ -35,6 +35,7 @@ export interface MCPInitializationStatus {
  */
 export class MCPInitializer {
   private static instance: MCPInitializer
+  private initializing: Promise<MCPInitializationStatus> | null = null
   private initializationStatus: MCPInitializationStatus = {
     configLoaded: false,
     serversConnected: false,
@@ -61,9 +62,33 @@ export class MCPInitializer {
   /**
    * 执行完整的MCP初始化流程
    */
-  async initialize(): Promise<MCPInitializationStatus> {
+  async initialize(force: boolean = false): Promise<MCPInitializationStatus> {
+    // 如果已经就绪且不强制重新初始化，直接返回状态
+    if (this.initializationStatus.ready && !force) {
+      return this.getStatus()
+    }
+
+    // 如果正在初始化，等待完成
+    if (this.initializing) {
+      return this.initializing
+    }
+
+    // 开始初始化
     console.log('开始MCP系统初始化...')
+    this.initializing = this._doInitialize()
     
+    try {
+      const result = await this.initializing
+      return result
+    } finally {
+      this.initializing = null
+    }
+  }
+
+  /**
+   * 内部初始化逻辑
+   */
+  private async _doInitialize(): Promise<MCPInitializationStatus> {
     try {
       // 重置状态
       this.resetStatus()
@@ -114,8 +139,75 @@ export class MCPInitializer {
       this.initializationStatus.configLoaded = true
       
       console.log(`配置加载完成: ${this.initializationStatus.details.totalServers} 个服务器配置，${enabledServers.length} 个启用`)
+      
+      // 同步配置到数据库
+      await this.syncConfigToDatabase(serverConfigs)
     } catch (error) {
       throw new Error(`配置加载失败: ${error instanceof Error ? error.message : '未知错误'}`)
+    }
+  }
+
+  /**
+   * 同步MCP配置到数据库
+   */
+  private async syncConfigToDatabase(serverConfigs: Record<string, any>): Promise<void> {
+    try {
+      console.log('同步MCP配置到数据库...')
+      
+      const { getDatabaseService } = await import('./database')
+      const dbService = getDatabaseService()
+      
+      // 确保表存在
+      await dbService.query(`
+        CREATE TABLE IF NOT EXISTS mcp_servers (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          display_name TEXT,
+          transport TEXT NOT NULL,
+          url TEXT,
+          command TEXT,
+          args TEXT,
+          env TEXT,
+          disabled BOOLEAN DEFAULT FALSE,
+          metadata JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+      
+      // 同步每个服务器配置
+      for (const [name, config] of Object.entries(serverConfigs)) {
+        await dbService.query(`
+          INSERT INTO mcp_servers 
+          (name, display_name, transport, url, command, args, env, disabled, metadata, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+          ON CONFLICT (name) 
+          DO UPDATE SET
+            display_name = EXCLUDED.display_name,
+            transport = EXCLUDED.transport,
+            url = EXCLUDED.url,
+            command = EXCLUDED.command,
+            args = EXCLUDED.args,
+            env = EXCLUDED.env,
+            disabled = EXCLUDED.disabled,
+            metadata = EXCLUDED.metadata,
+            updated_at = CURRENT_TIMESTAMP
+        `, [
+          name,
+          config.name || name,
+          config.transport || 'stdio',
+          config.url || null,
+          config.command || null,
+          config.args ? JSON.stringify(config.args) : null,
+          config.env ? JSON.stringify(config.env) : null,
+          config.disabled || false,
+          JSON.stringify(config)
+        ])
+      }
+      
+      console.log(`已同步 ${Object.keys(serverConfigs).length} 个MCP服务器配置到数据库`)
+    } catch (error) {
+      console.warn('同步MCP配置到数据库失败（不影响系统运行）:', error)
     }
   }
 
@@ -217,15 +309,15 @@ export class MCPInitializer {
       // 更新可用工具列表
       await intentRecognizer.updateAvailableTools()
       
-      // 获取统计信息
-      const stats = intentRecognizer.getStats()
+      // 动态扩展关键词映射（基于实际可用的工具）
+      await this.expandKeywordMappings()
+      
+      // 获取统计信息（在扩展后）
+      const stats = await intentRecognizer.getStatsAsync()
       this.initializationStatus.details.keywordMappings = stats.keywordMappings
       this.initializationStatus.keywordsMapped = stats.keywordMappings > 0
       
-      console.log(`关键词映射初始化完成: ${stats.keywordMappings} 个工具映射`)
-      
-      // 动态扩展关键词映射（基于实际可用的工具）
-      await this.expandKeywordMappings()
+      console.log(`关键词映射初始化完成: ${stats.keywordMappings} 个工具映射 (${stats.totalKeywords} 个关键词)`)
       
     } catch (error) {
       throw new Error(`关键词映射初始化失败: ${error instanceof Error ? error.message : '未知错误'}`)

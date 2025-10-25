@@ -32,6 +32,19 @@ export class MCPServerManager {
    */
   async initializeServer(serverName: string, config: MCPServerConfig): Promise<void> {
     try {
+      // Check if server is already initialized or initializing
+      const existingServer = this.servers.get(serverName)
+      if (existingServer) {
+        if (existingServer.status === 'connected') {
+          console.log(`MCP server ${serverName} is already connected`)
+          return
+        }
+        if (existingServer.status === 'initializing') {
+          console.log(`MCP server ${serverName} is already initializing`)
+          return
+        }
+      }
+
       const serverInfo = {
         config,
         process: null as ChildProcess | null,
@@ -203,15 +216,19 @@ export class MCPServerManager {
           console.log(`MCP server ${serverName} exited with code ${code}, signal ${signal}`)
         })
 
-        // Log stderr for debugging
+        // Log stderr for debugging (only errors)
         if (childProcess.stderr) {
           childProcess.stderr.on('data', (data) => {
-            console.error(`MCP server ${serverName} stderr:`, data.toString())
+            const message = data.toString()
+            // Only log actual errors, not info messages
+            if (message.toLowerCase().includes('error') || message.toLowerCase().includes('fail')) {
+              console.error(`MCP server ${serverName} stderr:`, message)
+            }
           })
         }
 
-        // Log stdout for debugging
-        if (childProcess.stdout) {
+        // Log stdout for debugging (only in verbose mode)
+        if (childProcess.stdout && process.env.MCP_VERBOSE === 'true') {
           childProcess.stdout.on('data', (data) => {
             console.log(`MCP server ${serverName} stdout:`, data.toString())
           })
@@ -445,8 +462,8 @@ export class MCPServerManager {
     if (serverInfo.config.transport === 'http') {
       return this.callHttpTool(serverInfo, toolName, args)
     } else {
-      // For stdio, simulate for now (would need real MCP protocol implementation)
-      return this.simulateToolExecution(toolName, args)
+      // For stdio, use real MCP protocol implementation
+      return this.callStdioTool(serverInfo, serverName, toolName, args)
     }
   }
 
@@ -472,6 +489,86 @@ export class MCPServerManager {
     } catch (error) {
       throw new Error(`HTTP tool execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+  }
+
+  /**
+   * Call tool via stdio transport using MCP JSON-RPC
+   */
+  private async callStdioTool(serverInfo: any, serverName: string, toolName: string, args: Record<string, any>): Promise<MCPCallToolResponse> {
+    if (!serverInfo.process || serverInfo.process.killed) {
+      throw new Error(`Server process for ${serverName} is not running`)
+    }
+
+    return new Promise((resolve, reject) => {
+      const process = serverInfo.process
+      let responseBuffer = ''
+      const requestId = Date.now()
+
+      const timeout = setTimeout(() => {
+        cleanup()
+        reject(new Error(`Timeout waiting for tool response from ${serverName}`))
+      }, 30000) // 30 second timeout
+
+      const cleanup = () => {
+        clearTimeout(timeout)
+        if (process.stdout) {
+          process.stdout.removeListener('data', dataHandler)
+        }
+      }
+
+      const dataHandler = (data: Buffer) => {
+        responseBuffer += data.toString()
+        const lines = responseBuffer.split('\n')
+        responseBuffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.trim()) continue
+
+          try {
+            const response = JSON.parse(line)
+            console.log(`Received MCP tool response from ${serverName}:`, response)
+
+            // Check if this is the response to our request
+            if (response.id === requestId) {
+              cleanup()
+
+              if (response.error) {
+                reject(new Error(`MCP tool call error: ${response.error.message || JSON.stringify(response.error)}`))
+              } else if (response.result) {
+                resolve(response.result)
+              } else {
+                reject(new Error(`Invalid MCP response: ${JSON.stringify(response)}`))
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to parse MCP response from ${serverName}:`, line, error)
+          }
+        }
+      }
+
+      if (process.stdout) {
+        process.stdout.on('data', dataHandler)
+      }
+
+      // Send tools/call request
+      console.log(`Sending MCP tools/call request to ${serverName}:`, { toolName, args })
+      const toolCallRequest = JSON.stringify({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'tools/call',
+        params: {
+          name: toolName,
+          arguments: args
+        }
+      }) + '\n'
+
+      try {
+        process.stdin?.write(toolCallRequest)
+      } catch (error) {
+        cleanup()
+        reject(new Error(`Failed to write to process stdin: ${error instanceof Error ? error.message : 'Unknown error'}`))
+      }
+    })
   }
 
   /**

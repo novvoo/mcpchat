@@ -68,14 +68,6 @@ export default function AdminPage() {
 
     // 测试页面
     {
-      title: 'Test HTTP MCP',
-      description: '测试HTTP MCP服务器连接和通信',
-      href: '/admin/test-http-mcp',
-      icon: <TestTube className="h-5 w-5" />,
-      category: 'test',
-      status: 'active'
-    },
-    {
       title: 'Test MCP Connection',
       description: '从config/mcp.json配置测试MCP服务器连接',
       href: '/admin/test-mcp-connection',

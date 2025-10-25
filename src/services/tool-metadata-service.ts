@@ -142,6 +142,19 @@ export class ToolMetadataService {
         WITH (lists = 100)
       `)
 
+            // 创建工具名称模式表
+            await client.query(`
+        CREATE TABLE IF NOT EXISTS tool_name_patterns (
+          id SERIAL PRIMARY KEY,
+          pattern VARCHAR(255) NOT NULL UNIQUE,
+          keywords TEXT[] NOT NULL,
+          confidence FLOAT DEFAULT 0.5,
+          usage_count INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+
             console.log('Tool metadata tables created successfully')
         } finally {
             client.release()
@@ -209,7 +222,7 @@ export class ToolMetadataService {
                 metadata.keywords,
                 JSON.stringify(metadata.parameterMappings),
                 metadata.validParameters,
-                metadata.examples,
+                JSON.stringify(metadata.examples), // 修复：将数组转换为 JSON 字符串
                 metadata.category,
                 JSON.stringify({ lastUpdated: new Date().toISOString() })
             ])
@@ -624,6 +637,7 @@ export class ToolMetadataService {
             // 检查是否启用了向量搜索
             const { getEmbeddingService } = await import('./embedding-service')
             const embeddingService = getEmbeddingService()
+            await embeddingService.initialize()
 
             // 为工具描述生成嵌入向量
             const embedding = await embeddingService.generateEmbedding(description)
@@ -971,6 +985,7 @@ export class ToolMetadataService {
         try {
             const { getEmbeddingService } = await import('./embedding-service')
             const embeddingService = getEmbeddingService()
+            await embeddingService.initialize()
 
             // 为每个关键词生成embedding
             for (const keyword of keywords) {
@@ -1402,6 +1417,7 @@ export class ToolMetadataService {
         try {
             const { getEmbeddingService } = await import('./embedding-service')
             const embeddingService = getEmbeddingService()
+            await embeddingService.initialize()
 
             // 生成用户输入的embedding
             const userEmbedding = await embeddingService.generateEmbedding(userInput)

@@ -27,6 +27,10 @@ export async function GET() {
     // 获取数据库服务
     const { getDatabaseService } = await import('@/services/database')
     const dbService = getDatabaseService()
+    
+    // 确保数据库已初始化
+    await dbService.initialize()
+    
     const client = await dbService.getClient()
     
     if (!client) {

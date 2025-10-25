@@ -20,6 +20,7 @@ node_modules
 # production
 /build
 
+docs
 # misc
 .DS_Store
 *.pem
@@ -47,3 +48,5 @@ test—*.js
 */test—*.js
 check—*.js
 */check—*.js
+fix—*.js
+*/fix—*.js

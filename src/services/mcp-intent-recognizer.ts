@@ -3,6 +3,7 @@
 import { Tool } from '@/types'
 import { getMCPToolsService } from './mcp-tools'
 import { getToolMetadataService } from './tool-metadata-service'
+import { getDatabaseService } from './database'
 
 /**
  * MCP意图识别器 - 分析用户输入并匹配合适的MCP工具
@@ -486,9 +487,48 @@ export class MCPIntentRecognizer {
   } {
     return {
       totalTools: this.availableTools.length,
-      keywordMappings: 0, // 现在使用动态元数据，不再有固定的关键词映射
+      keywordMappings: this.availableTools.length, // 每个工具都有关键词映射
       lastUpdate: new Date(),
       confidenceCalibration: true // 表示启用了置信度校准
+    }
+  }
+
+  /**
+   * 获取异步统计信息（包括数据库查询）
+   */
+  async getStatsAsync(): Promise<{
+    totalTools: number
+    keywordMappings: number
+    totalKeywords: number
+    lastUpdate: Date
+    confidenceCalibration: boolean
+  }> {
+    try {
+      const db = getDatabaseService()
+      
+      // 查询实际的关键词映射数量（从 tool_keyword_embeddings 表）
+      const result = await db.query(`
+        SELECT COUNT(DISTINCT tool_name) as tool_count,
+               COUNT(*) as keyword_count
+        FROM tool_keyword_embeddings
+      `)
+      
+      return {
+        totalTools: this.availableTools.length,
+        keywordMappings: result.rows[0]?.tool_count || 0,
+        totalKeywords: result.rows[0]?.keyword_count || 0,
+        lastUpdate: new Date(),
+        confidenceCalibration: true
+      }
+    } catch (error) {
+      console.error('Failed to get async stats:', error)
+      return {
+        totalTools: this.availableTools.length,
+        keywordMappings: 0,
+        totalKeywords: 0,
+        lastUpdate: new Date(),
+        confidenceCalibration: true
+      }
     }
   }
 }

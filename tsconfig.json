@@ -19,6 +19,7 @@
     "jsx": "react-jsx",
     "incremental": true,
     "types": [
+      "node",
       "jest",
       "@testing-library/jest-dom"
     ],

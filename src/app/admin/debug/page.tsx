@@ -45,14 +45,6 @@ export default function DebugPage() {
       status: 'new'
     },
     {
-      title: 'HTTP MCP 测试',
-      description: '测试HTTP传输的MCP服务器连接和工具调用',
-      href: '/admin/test-http-mcp',
-      icon: <Network className="h-6 w-6" />,
-      category: 'MCP',
-      status: 'stable'
-    },
-    {
       title: 'MCP 连接测试',
       description: '直接测试HTTP MCP服务器的连接和通信协议',
       href: '/admin/test-mcp-connection',

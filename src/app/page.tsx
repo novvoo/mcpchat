@@ -5,10 +5,32 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
-import { Settings } from 'lucide-react'
+import { Settings, RefreshCw } from 'lucide-react'
 
 export default function Home() {
-  const [showPatterns, setShowPatterns] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const refreshDynamicPatterns = async () => {
+    setIsRefreshing(true)
+    try {
+      const response = await fetch('/api/admin/dynamic-patterns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'learn_from_tools' })
+      })
+      const data = await response.json()
+      if (data.success) {
+        alert(`刷新成功！\n新关键词: ${data.data.newKeywords.length} 个\n更新模式: ${data.data.updatedPatterns.length} 个`)
+      } else {
+        alert('刷新失败: ' + (data.error || '未知错误'))
+      }
+    } catch (error) {
+      console.error('刷新动态模式失败:', error)
+      alert('刷新失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
 
   return (
     <ErrorBoundary
@@ -29,38 +51,25 @@ export default function Home() {
               </Button>
             </Link>
             <Button
-              variant={showPatterns ? "primary" : "outline"}
+              variant="outline"
               size="sm"
-              onClick={() => setShowPatterns(!showPatterns)}
+              onClick={refreshDynamicPatterns}
+              disabled={isRefreshing}
             >
-              {showPatterns ? '隐藏' : '显示'}动态模式学习
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? '刷新中...' : '刷新动态模式'}
             </Button>
           </div>
         </div>
 
-        <div className="flex-1 flex">
+        <div className="flex-1">
           {/* 聊天界面 */}
-          <div className={`${showPatterns ? 'w-1/2' : 'w-full'} transition-all duration-300`}>
-            <SimpleChatInterface
-              placeholder="Ask me anything or try: 'Solve the 8 queens problem'"
-              showTimestamps={false}
-              showAvatars={true}
-              className="h-full"
-            />
-          </div>
-
-          {/* 动态模式学习面板 */}
-          {showPatterns && (
-            <div className="w-1/2 border-l bg-card">
-              <div className="h-full">
-                <iframe
-                  src="/admin/dynamic-patterns"
-                  className="w-full h-full border-0"
-                  title="动态模式学习管理"
-                />
-              </div>
-            </div>
-          )}
+          <SimpleChatInterface
+            placeholder="Ask me anything or try: 'Solve the 8 queens problem'"
+            showTimestamps={false}
+            showAvatars={true}
+            className="h-full"
+          />
         </div>
       </main>
     </ErrorBoundary>

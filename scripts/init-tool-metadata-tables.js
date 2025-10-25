@@ -88,6 +88,20 @@ async function initializeToolMetadataTables() {
       )
     `)
 
+    // 5. Create tool_name_patterns table
+    console.log('Creating tool_name_patterns table...')
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tool_name_patterns (
+        id SERIAL PRIMARY KEY,
+        pattern VARCHAR(255) NOT NULL UNIQUE,
+        keywords TEXT[] NOT NULL,
+        confidence FLOAT DEFAULT 0.5,
+        usage_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
     // 5. Insert initial keyword mappings for common tools
     console.log('Inserting initial keyword mappings...')
     

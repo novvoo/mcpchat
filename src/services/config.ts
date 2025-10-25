@@ -1,10 +1,8 @@
 // Configuration loader and manager for MCP servers
 
-import { MCPServerConfig, AppConfig, LLMConfig, EmbeddingsConfig } from '@/types'
+import { MCPServerConfig, AppConfig } from '@/types'
 import { DEFAULT_CONFIG, ENV_VARS } from '@/types/constants'
 import { getMCPConfig } from '@/lib/mcp-config'
-import { getLLMConfig } from '@/lib/llm-config'
-import { getEmbeddingsConfig } from '@/lib/embeddings-config'
 
 /**
  * Configuration loader class for managing MCP server configurations
@@ -13,7 +11,7 @@ export class ConfigLoader {
   private static instance: ConfigLoader
   private config: AppConfig | null = null
 
-  private constructor() {}
+  private constructor() { }
 
   /**
    * Get singleton instance of ConfigLoader
@@ -26,7 +24,7 @@ export class ConfigLoader {
   }
 
   /**
-   * Load configuration from environment variables and config/mcp.json file
+   * Load configuration from environment variables and mcp.json file
    */
   public async loadConfig(): Promise<AppConfig> {
     if (this.config) {
@@ -34,9 +32,9 @@ export class ConfigLoader {
     }
 
     try {
-      // Load LLM configuration from file
-      const llmConfig = await this.loadLLMConfig()
-      
+      // Load LLM configuration from environment variables
+      const llmConfig = this.loadLLMConfig()
+
       // Load MCP configuration from file
       const mcpConfig = await this.loadMCPConfig()
 
@@ -57,33 +55,24 @@ export class ConfigLoader {
   }
 
   /**
-   * Load LLM service configuration from file
+   * Load LLM service configuration from environment variables
    */
-  private async loadLLMConfig(): Promise<LLMConfig> {
-    try {
-      return await getLLMConfig()
-    } catch (error) {
-      console.warn('Failed to load LLM config from file:', error)
-      // Fall back to environment variables or default configuration
-      const llmUrl = process.env[ENV_VARS.LLM_URL] || DEFAULT_CONFIG.LLM_URL
-      const llmApiKey = process.env[ENV_VARS.LLM_API_KEY] || ''
+  private loadLLMConfig() {
+    const llmUrl = process.env[ENV_VARS.LLM_URL] || DEFAULT_CONFIG.LLM_URL
+    const llmApiKey = process.env[ENV_VARS.LLM_API_KEY] || ''
 
-      return {
-        url: llmUrl,
-        apiKey: llmApiKey,
-        timeout: DEFAULT_CONFIG.REQUEST_TIMEOUT,
-        maxTokens: 2000,
-        temperature: 0.7,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': llmApiKey ? `Bearer ${llmApiKey}` : ''
-        }
+    return {
+      url: llmUrl,
+      apiKey: llmApiKey,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': llmApiKey ? `Bearer ${llmApiKey}` : ''
       }
     }
   }
 
   /**
-   * Load MCP server configuration from config/mcp.json file
+   * Load MCP server configuration from mcp.json file
    */
   private async loadMCPConfig(): Promise<{ servers: Record<string, MCPServerConfig> }> {
     try {
@@ -100,9 +89,13 @@ export class ConfigLoader {
   /**
    * Load embeddings configuration from embeddings.json file
    */
-  private async loadEmbeddingsConfig(): Promise<EmbeddingsConfig> {
+  private async loadEmbeddingsConfig() {
     try {
-      return await getEmbeddingsConfig()
+      const fs = await import('fs/promises')
+      const path = await import('path')
+      const configPath = path.join(process.cwd(), 'config', 'embeddings.json')
+      const configData = await fs.readFile(configPath, 'utf-8')
+      return JSON.parse(configData)
     } catch (error) {
       console.warn('Failed to load embeddings config from file:', error)
       // Fall back to default configuration
@@ -211,9 +204,9 @@ export class ConfigLoader {
   }
 
   /**
-   * Get embeddings service configuration
+   * Get embeddings configuration
    */
-  public getEmbeddingsConfig(): EmbeddingsConfig {
+  public getEmbeddingsConfig() {
     if (!this.config) {
       throw new Error('Configuration not loaded. Call loadConfig() first.')
     }

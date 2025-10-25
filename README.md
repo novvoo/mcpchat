@@ -206,7 +206,47 @@ Configure the embeddings service for text similarity and tool routing:
 
 ### MCP Configuration (`config/mcp.json`)
 
-Define MCP servers and their connection details. See [MCP documentation](https://modelcontextprotocol.io) for details.
+Define MCP servers and their connection details. Supports both stdio and HTTP transports.
+
+Example configuration:
+```json
+{
+  "mcpServers": {
+    "gurddy-stdio": {
+      "name": "gurddy-stdio",
+      "transport": "stdio",
+      "command": "gurddy-mcp",
+      "args": [],
+      "env": {},
+      "disabled": false,
+      "autoApprove": ["solve_n_queens", "solve_sudoku"]
+    },
+    "example-http": {
+      "name": "example-http",
+      "transport": "http",
+      "url": "http://localhost:3001",
+      "timeout": 60000,
+      "retryAttempts": 3,
+      "retryDelay": 1000,
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+**Transport Types:**
+- `stdio`: Process-based communication (default)
+  - `command`: Executable command
+  - `args`: Command arguments
+  - `env`: Environment variables
+- `http`: HTTP-based communication
+  - `url`: MCP server URL
+  - `timeout`: Request timeout in milliseconds
+  - `retryAttempts`: Number of retry attempts
+  - `retryDelay`: Delay between retries in milliseconds
+
+See [MCP documentation](https://modelcontextprotocol.io) for details.
 
 ## How It Works
 
@@ -225,6 +265,42 @@ Define MCP servers and their connection details. See [MCP documentation](https:/
 - `POST /api/tools/search` - Search tools by query
 - `POST /api/tools/index` - Trigger tool indexing
 - `GET /api/config` - Get system configuration
+- `POST /api/test-mcp` - Test MCP connections (stdio/http)
+
+## Testing MCP Connections
+
+Visit [http://localhost:3000/test-mcp](http://localhost:3000/test-mcp) to test MCP server connections.
+
+The test page supports:
+- **stdio transport**: Test process-based MCP servers
+- **http transport**: Test HTTP-based MCP servers
+- **Multiple methods**: initialize, tools/list, tools/call, ping
+- **Custom parameters**: Configure command, args, env, URL, etc.
+
+Example API usage:
+```bash
+# Test stdio MCP server
+curl -X POST http://localhost:3000/api/test-mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transport": "stdio",
+    "command": "gurddy-mcp",
+    "args": [],
+    "env": {},
+    "method": "initialize",
+    "params": {}
+  }'
+
+# Test HTTP MCP server
+curl -X POST http://localhost:3000/api/test-mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transport": "http",
+    "url": "http://localhost:3001",
+    "method": "initialize",
+    "params": {}
+  }'
+```
 
 ## Development
 
