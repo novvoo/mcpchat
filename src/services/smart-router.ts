@@ -422,6 +422,8 @@ export class SmartRouter {
         return this.formatQueensOutput(output)
       case 'solve_sudoku':
         return this.formatSudokuOutput(output)
+      case 'solve_24_point_game':
+        return this.format24PointOutput(output)
       case 'install':
         return this.formatInstallOutput(output)
       default:
@@ -465,6 +467,26 @@ export class SmartRouter {
       .replace(/Solved sudoku:/g, '✅ **数独已解决:**')
       .replace(/Invalid sudoku/g, '❌ **无效的数独**')
       .replace(/No solution/g, '❌ **无解**')
+  }
+
+  /**
+   * 格式化24点游戏输出
+   */
+  private format24PointOutput(output: string): string {
+    // 尝试解析JSON格式的输出
+    try {
+      const parsed = JSON.parse(output)
+      if (parsed && typeof parsed === 'object') {
+        return this.format24PointGameResponse(parsed)
+      }
+    } catch {
+      // 不是JSON，继续处理文本
+    }
+
+    return output
+      .replace(/Solution found:/g, '✅ **找到解决方案:**')
+      .replace(/No solution/g, '❌ **无解**')
+      .replace(/Expression:/g, '**表达式:**')
   }
 
   /**
@@ -563,7 +585,8 @@ export class SmartRouter {
    * 格式化24点游戏响应
    */
   private format24PointGameResponse(result: any): string {
-    if (result.success && result.expression) {
+    // 处理成功的情况
+    if (result.success === true && result.expression) {
       const expression = result.expression
       
       // 验证表达式是否等于24
@@ -575,11 +598,24 @@ export class SmartRouter {
       } catch (error) {
         return `✅ **找到表达式:** \`${expression}\`\n\n请验证这个表达式是否正确计算出24。`
       }
-    } else if (result.error) {
-      return `❌ **求解失败:** ${result.error}`
-    } else {
-      return `❌ **无解**\n\n无法用给定的数字通过四则运算得到24。`
     }
+    
+    // 处理失败的情况 - success 为 false
+    if (result.success === false) {
+      if (result.error) {
+        return `❌ **求解失败:** ${result.error}\n\n这组数字可能无法通过四则运算得到24，或者需要更复杂的算法。`
+      } else {
+        return `❌ **无解**\n\n无法用给定的数字通过四则运算得到24。`
+      }
+    }
+    
+    // 处理有错误信息的情况
+    if (result.error) {
+      return `❌ **求解失败:** ${result.error}`
+    }
+    
+    // 其他情况
+    return `❌ **无解**\n\n无法用给定的数字通过四则运算得到24。`
   }
 
   /**

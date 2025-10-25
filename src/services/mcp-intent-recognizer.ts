@@ -204,20 +204,20 @@ export class MCPIntentRecognizer {
       if (boardSizeMatch) {
         return parseInt(boardSizeMatch[1])
       }
-      
+
       // 匹配 "6个皇后"、"6 queens" 等格式
       const queensCountMatch = input.match(/(\d+)\s*(?:个\s*)?(?:queens?|皇后)/i)
       if (queensCountMatch) {
         return parseInt(queensCountMatch[1])
       }
-      
+
       // 匹配棋盘描述 "6×6的棋盘"
       const boardDescMatch = input.match(/(\d+)\s*[×x*]\s*\d+\s*(?:的\s*)?(?:棋盘|board)/i)
       if (boardDescMatch) {
         return parseInt(boardDescMatch[1])
       }
     }
-    
+
     // 通用数字匹配
     const numberMatch = input.match(new RegExp(`(\\d+)\\s*(?:${context}|皇后)`, 'i'))
     return numberMatch ? parseInt(numberMatch[1]) : defaultValue
@@ -260,12 +260,30 @@ export class MCPIntentRecognizer {
    * 提取24点游戏的数字
    */
   private extract24PointNumbers(input: string): number[] {
-    // 尝试提取数字
-    const numbers = input.match(/\d+/g)
+    // 先移除 "24 point" 或 "24点" 这样的关键词，避免把24当作输入数字
+    let cleanInput = input
+      .replace(/24\s*point/gi, '')
+      .replace(/24\s*点/g, '')
+      .replace(/得到\s*24/g, '')
+      .replace(/算出\s*24/g, '')
+      .replace(/make\s*24/gi, '')
+      .replace(/get\s*24/gi, '')
+
+    // 尝试从数组格式提取: [9,32,15,27] 或 [9, 32, 15, 27]
+    const arrayMatch = cleanInput.match(/\[([^\]]+)\]/)
+    if (arrayMatch) {
+      const numbers = arrayMatch[1].split(/[,\s]+/).map(n => parseInt(n.trim())).filter(n => !isNaN(n))
+      if (numbers.length >= 4) {
+        return numbers.slice(0, 4)
+      }
+    }
+
+    // 尝试提取所有数字
+    const numbers = cleanInput.match(/\d+/g)
     if (numbers && numbers.length >= 4) {
       return numbers.slice(0, 4).map(n => parseInt(n))
     }
-    
+
     // 如果没有找到足够的数字，返回默认值
     return [8, 8, 4, 13]
   }
@@ -505,14 +523,14 @@ export class MCPIntentRecognizer {
   }> {
     try {
       const db = getDatabaseService()
-      
+
       // 查询实际的关键词映射数量（从 tool_keyword_embeddings 表）
       const result = await db.query(`
         SELECT COUNT(DISTINCT tool_name) as tool_count,
                COUNT(*) as keyword_count
         FROM tool_keyword_embeddings
       `)
-      
+
       return {
         totalTools: this.availableTools.length,
         keywordMappings: result.rows[0]?.tool_count || 0,

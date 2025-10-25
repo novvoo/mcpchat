@@ -267,8 +267,26 @@ export class SimpleIntentRecognizer {
    * 提取24点游戏的数字
    */
   private extract24PointNumbers(input: string): number[] {
-    // 尝试提取数字
-    const numbers = input.match(/\d+/g)
+    // 先移除 "24 point" 或 "24点" 这样的关键词，避免把24当作输入数字
+    let cleanInput = input
+      .replace(/24\s*point/gi, '')
+      .replace(/24\s*点/g, '')
+      .replace(/得到\s*24/g, '')
+      .replace(/算出\s*24/g, '')
+      .replace(/make\s*24/gi, '')
+      .replace(/get\s*24/gi, '')
+    
+    // 尝试从数组格式提取: [9,32,15,27] 或 [9, 32, 15, 27]
+    const arrayMatch = cleanInput.match(/\[([^\]]+)\]/)
+    if (arrayMatch) {
+      const numbers = arrayMatch[1].split(/[,\s]+/).map(n => parseInt(n.trim())).filter(n => !isNaN(n))
+      if (numbers.length >= 4) {
+        return numbers.slice(0, 4)
+      }
+    }
+    
+    // 尝试提取所有数字
+    const numbers = cleanInput.match(/\d+/g)
     if (numbers && numbers.length >= 4) {
       return numbers.slice(0, 4).map(n => parseInt(n))
     }
