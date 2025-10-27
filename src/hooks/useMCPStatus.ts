@@ -27,11 +27,8 @@ class MCPStatusManager {
     // 立即通知当前状态
     callback(this.status, this.isLoading, this.error)
     
-    // 如果这是第一个监听器，开始自动检查
-    if (this.listeners.size === 1 && !this.isInitialized) {
-      this.startAutoCheck()
-      this.isInitialized = true
-    }
+    // 临时完全禁用自动检查来调试问题
+    console.warn('🚫 MCPStatusManager: 自动检查已完全禁用以调试频繁调用问题')
     
     return () => {
       this.listeners.delete(callback)

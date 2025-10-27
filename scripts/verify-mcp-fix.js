@@ -14,30 +14,12 @@ console.log(`监控时长: ${monitorDuration / 1000}秒`)
 console.log('预期调用频率: 每30-60秒一次')
 console.log('---')
 
-const checkStatus = async () => {
-  try {
-    const response = await fetch('http://localhost:3000/api/mcp/status')
-    if (response.ok) {
-      callCount++
-      const elapsed = Date.now() - startTime
-      const avgInterval = elapsed / callCount
-      
-      console.log(`[${new Date().toLocaleTimeString()}] 检测到API调用 #${callCount}`)
-      console.log(`  平均间隔: ${(avgInterval / 1000).toFixed(1)}秒`)
-      
-      if (avgInterval < 25000) { // 少于25秒
-        console.log('  ⚠️  调用频率仍然过高')
-      } else {
-        console.log('  ✅ 调用频率正常')
-      }
-    }
-  } catch (error) {
-    console.log('API调用失败:', error.message)
-  }
-}
+// 这个脚本不应该主动调用API，而应该被动监控
+console.log('❌ 错误：这个脚本不应该主动调用API')
+console.log('请使用浏览器开发者工具的网络面板来监控API调用')
+console.log('或者运行 node scripts/monitor-mcp-calls.js 来设置代理监控')
 
-// 每5秒检查一次是否有新的API调用
-const checkInterval = setInterval(checkStatus, 5000)
+process.exit(1)
 
 // 5分钟后结束监控
 setTimeout(() => {

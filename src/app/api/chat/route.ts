@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getLLMService, LLMServiceError } from '@/services/llm-service'
 import { getEnhancedSmartRouter } from '@/services/enhanced-smart-router'
 import { getToolOrchestrator } from '@/services/tool-orchestrator'
-import { getEnhancedStructuredParser } from '@/services/enhanced-structured-parser'
 import { validateChatRequest } from '@/types/validation'
 import { HTTP_STATUS, ERROR_CODES } from '@/types/constants'
 import { ChatMessage, ChatApiResponse } from '@/types'
@@ -83,16 +82,6 @@ export async function POST(request: NextRequest) {
           maxToolCalls: 5,
           useLangChain  // 从请求参数中获取，默认为true
         })
-
-        // 使用增强结构化解析器处理响应
-        if (result.response && typeof result.response === 'string') {
-          const parser = getEnhancedStructuredParser()
-          const parsedResult = await parser.parseResponse(result.response)
-          
-          if (parsedResult.hasStructuredContent) {
-            result.response = parsedResult.formattedResponse
-          }
-        }
       }
 
       // Prepare API response
