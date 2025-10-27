@@ -600,14 +600,14 @@ const CollapsibleJSON: React.FC<{ data: any; title?: string; defaultExpanded?: b
   
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          setIsExpanded(!isExpanded)
-        }}
-        className="w-full flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800">
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            setIsExpanded(!isExpanded)
+          }}
+          className="flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors rounded px-2 py-1 -mx-2 -my-1"
+        >
           {isExpanded ? (
             <ChevronDown className="h-4 w-4 text-gray-500" />
           ) : (
@@ -616,25 +616,23 @@ const CollapsibleJSON: React.FC<{ data: any; title?: string; defaultExpanded?: b
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
             {title}
           </span>
-        </div>
+        </button>
         
-        <div className="flex items-center gap-2">
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              handleCopy()
-            }}
-            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-            title="复制JSON"
-          >
-            {copied ? (
-              <Check className="h-3 w-3 text-green-500" />
-            ) : (
-              <Copy className="h-3 w-3 text-gray-500" />
-            )}
-          </button>
-        </div>
-      </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            handleCopy()
+          }}
+          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+          title="复制JSON"
+        >
+          {copied ? (
+            <Check className="h-3 w-3 text-green-500" />
+          ) : (
+            <Copy className="h-3 w-3 text-gray-500" />
+          )}
+        </button>
+      </div>
       
       {isExpanded && (
         <div className="p-3 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">

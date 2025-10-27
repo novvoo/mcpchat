@@ -13,6 +13,7 @@ class MCPStatusManager {
   private checkInterval: NodeJS.Timeout | null = null
   private lastCheckTime = 0
   private readonly MIN_CHECK_INTERVAL = 5000 // 最小5秒间隔
+  private isInitialized = false
 
   static getInstance(): MCPStatusManager {
     if (!MCPStatusManager.instance) {
@@ -27,8 +28,9 @@ class MCPStatusManager {
     callback(this.status, this.isLoading, this.error)
     
     // 如果这是第一个监听器，开始自动检查
-    if (this.listeners.size === 1) {
+    if (this.listeners.size === 1 && !this.isInitialized) {
       this.startAutoCheck()
+      this.isInitialized = true
     }
     
     return () => {
@@ -36,6 +38,7 @@ class MCPStatusManager {
       // 如果没有监听器了，停止自动检查
       if (this.listeners.size === 0) {
         this.stopAutoCheck()
+        this.isInitialized = false
       }
     }
   }
@@ -47,21 +50,32 @@ class MCPStatusManager {
   }
 
   private startAutoCheck() {
-    if (this.checkInterval) return
+    if (this.checkInterval) {
+      console.log('MCPStatusManager: 自动检查已在运行，跳过启动')
+      return
+    }
+    
+    console.log('MCPStatusManager: 启动自动检查')
     
     // 初始延迟后开始检查
     setTimeout(() => {
+      console.log('MCPStatusManager: 执行初始状态检查')
       this.checkStatus()
-    }, 2000)
+    }, 5000) // 增加初始延迟到5秒
     
-    // 设置定期检查
+    // 设置定期检查 - 使用更长的间隔
+    const interval = this.status?.ready ? 60000 : 30000 // 就绪后60秒，未就绪时30秒
+    console.log(`MCPStatusManager: 设置定期检查间隔 ${interval}ms`)
+    
     this.checkInterval = setInterval(() => {
+      console.log('MCPStatusManager: 执行定期状态检查')
       this.checkStatus()
-    }, this.status?.ready ? 30000 : 10000) // 就绪后30秒，未就绪时10秒
+    }, interval)
   }
 
   private stopAutoCheck() {
     if (this.checkInterval) {
+      console.log('MCPStatusManager: 停止自动检查')
       clearInterval(this.checkInterval)
       this.checkInterval = null
     }
@@ -108,10 +122,13 @@ class MCPStatusManager {
         
         // 如果状态发生变化，调整检查间隔
         if (wasReady !== newStatus.ready && this.checkInterval) {
+          const newInterval = newStatus.ready ? 60000 : 30000 // 更长的间隔
+          console.log(`MCPStatusManager: 状态变化，调整检查间隔为 ${newInterval}ms`)
           clearInterval(this.checkInterval)
           this.checkInterval = setInterval(() => {
+            console.log('MCPStatusManager: 执行调整后的定期检查')
             this.checkStatus()
-          }, newStatus.ready ? 30000 : 10000)
+          }, newInterval)
         }
       } else {
         throw new Error(response.error?.message || 'Failed to get MCP status')
