@@ -110,21 +110,8 @@ function analyzeHardcodedServices() {
     })
   }
 
-  // 5. mcp-intent-recognizer.ts 中的硬编码
-  console.log('📁 检查 mcp-intent-recognizer.ts...')
-  const mcpIntentPath = path.join(__dirname, '..', 'src', 'services', 'mcp-intent-recognizer.ts')
-  const mcpIntentContent = fs.readFileSync(mcpIntentPath, 'utf8')
-
-  if (mcpIntentContent.includes('const toolSuccessRates: Record<string, number>')) {
-    hardcodedIssues.push({
-      file: 'mcp-intent-recognizer.ts',
-      method: 'calibrateConfidence',
-      issue: '硬编码的工具成功率映射',
-      severity: 'medium',
-      lines: '280-290',
-      description: '工具成功率应该从数据库的使用统计中动态获取'
-    })
-  }
+  // 5. mcp-intent-recognizer.ts 已移除
+  console.log('📁 mcp-intent-recognizer.ts 已移除，跳过检查...')
 
   // 输出分析结果
   console.log('\n📊 硬编码问题分析结果:')

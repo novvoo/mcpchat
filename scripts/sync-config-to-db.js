@@ -42,8 +42,8 @@ async function syncConfigToDatabase() {
     // 同步 MCP 配置
     await syncMCPConfig(client)
     
-    // 同步 Embeddings 配置
-    await syncEmbeddingsConfig(client)
+    // 注意：Embeddings配置已弃用，现在使用LangChain进行意图识别
+    // await syncEmbeddingsConfig(client) // 已弃用
 
     console.log('\n✅ 配置同步完成!')
 
@@ -134,51 +134,17 @@ async function syncMCPConfig(client) {
 }
 
 /**
- * 同步 Embeddings 配置
+ * 同步 Embeddings 配置 - 已弃用
+ * 
+ * @deprecated 现在使用LangChain进行意图识别，不再需要embeddings配置
+ * 保留此函数仅为向后兼容，实际不再使用
  */
 async function syncEmbeddingsConfig(client) {
-  console.log('\n📝 同步 Embeddings 配置...')
+  console.log('\n⚠️  Embeddings配置已弃用，现在使用LangChain进行意图识别')
+  console.log('如需配置LangChain，请检查环境变量 OPENAI_API_KEY 和 OPENAI_BASE_URL')
   
-  try {
-    const configPath = path.resolve(process.cwd(), 'config/embeddings.json')
-    const configContent = await fs.readFile(configPath, 'utf-8')
-    const embeddingsConfig = JSON.parse(configContent)
-
-    const configs = [
-      {
-        key: 'embeddings.provider',
-        value: embeddingsConfig.provider,
-        type: 'string',
-        description: 'Embeddings服务提供商'
-      },
-      {
-        key: 'embeddings.model',
-        value: embeddingsConfig.model,
-        type: 'string',
-        description: 'Embeddings模型名称'
-      },
-      {
-        key: 'embeddings.dimensions',
-        value: embeddingsConfig.dimensions,
-        type: 'number',
-        description: 'Embeddings向量维度'
-      },
-      {
-        key: 'embeddings.batch_size',
-        value: embeddingsConfig.batchSize,
-        type: 'number',
-        description: 'Embeddings批处理大小'
-      }
-    ]
-
-    for (const config of configs) {
-      await upsertSystemConfig(client, config)
-    }
-
-    console.log('✅ Embeddings配置同步完成')
-  } catch (error) {
-    console.warn('⚠️  Embeddings配置文件读取失败:', error.message)
-  }
+  // 不再执行实际的配置同步
+  return
 }
 
 /**

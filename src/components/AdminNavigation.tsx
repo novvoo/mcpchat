@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/Button'
 import { ArrowLeft, Home } from 'lucide-react'
 
 interface AdminNavigationProps {
@@ -10,7 +10,7 @@ interface AdminNavigationProps {
   showBackToHome?: boolean
 }
 
-export default function AdminNavigation({ 
+export function AdminNavigation({ 
   title, 
   showBackToAdmin = true, 
   showBackToHome = true 
@@ -43,3 +43,5 @@ export default function AdminNavigation({
     </div>
   )
 }
+
+export default AdminNavigation

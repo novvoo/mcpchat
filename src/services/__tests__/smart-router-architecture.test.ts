@@ -26,16 +26,7 @@ jest.mock('../mcp-tools', () => ({
   })
 }))
 
-jest.mock('../mcp-intent-recognizer', () => ({
-  getMCPIntentRecognizer: jest.fn().mockReturnValue({
-    recognizeIntent: jest.fn().mockResolvedValue({
-      needsMCP: false,
-      confidence: 0.3,
-      suggestedTool: null,
-      reasoning: 'No specific tool needed'
-    })
-  })
-}))
+// mcp-intent-recognizer has been removed
 
 jest.mock('../conversation', () => ({
   getConversationManager: jest.fn().mockReturnValue({

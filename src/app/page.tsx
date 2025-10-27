@@ -3,7 +3,7 @@
 import { SimpleChatInterface } from '@/components'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/Button'
 import Link from 'next/link'
 import { Settings, RefreshCw } from 'lucide-react'
 

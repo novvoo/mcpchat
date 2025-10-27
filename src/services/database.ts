@@ -266,17 +266,7 @@ export class DatabaseService {
         )
       `)
 
-            // Create keyword_embeddings table
-            await client.query(`
-        CREATE TABLE IF NOT EXISTS keyword_embeddings (
-          id SERIAL PRIMARY KEY,
-          keyword VARCHAR(255) NOT NULL UNIQUE,
-          embedding vector(1536),
-          tool_names TEXT[] DEFAULT '{}',
-          usage_count INTEGER DEFAULT 0,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `)
+            // Note: keyword_embeddings table creation removed as embeddings are no longer used
 
             // Create tool_keyword_mappings table
             await client.query(`
@@ -321,19 +311,7 @@ export class DatabaseService {
         )
       `)
 
-            // Create tool_keyword_embeddings table
-            await client.query(`
-        CREATE TABLE IF NOT EXISTS tool_keyword_embeddings (
-          id SERIAL PRIMARY KEY,
-          tool_name VARCHAR(255) NOT NULL,
-          keyword VARCHAR(255) NOT NULL,
-          embedding vector(1536),
-          source VARCHAR(50) DEFAULT 'static',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(tool_name, keyword)
-        )
-      `)
+            // Note: tool_keyword_embeddings table creation removed as embeddings are no longer used
 
             // Create tool_name_patterns table
             await client.query(`
@@ -376,24 +354,29 @@ export class DatabaseService {
         )
       `)
 
-            // Create indexes for vector similarity search
+            // Create tool_metadata table (alias/view for mcp_tools for compatibility)
+            await client.query(`
+        CREATE TABLE IF NOT EXISTS tool_metadata (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) UNIQUE NOT NULL,
+          description TEXT NOT NULL,
+          input_schema JSONB,
+          server_name VARCHAR(255),
+          keywords TEXT[] DEFAULT '{}',
+          parameter_mappings JSONB,
+          valid_parameters TEXT[] DEFAULT '{}',
+          examples JSONB,
+          category VARCHAR(100),
+          metadata JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+
+            // Create indexes for tool vector similarity search (for tool matching)
             await client.query(`
         CREATE INDEX IF NOT EXISTS mcp_tools_embedding_idx 
         ON mcp_tools 
-        USING ivfflat (embedding vector_cosine_ops)
-        WITH (lists = 100)
-      `)
-
-            await client.query(`
-        CREATE INDEX IF NOT EXISTS keyword_embeddings_vector_idx 
-        ON keyword_embeddings 
-        USING ivfflat (embedding vector_cosine_ops)
-        WITH (lists = 100)
-      `)
-
-            await client.query(`
-        CREATE INDEX IF NOT EXISTS tool_keyword_embeddings_vector_idx 
-        ON tool_keyword_embeddings 
         USING ivfflat (embedding vector_cosine_ops)
         WITH (lists = 100)
       `)
@@ -434,14 +417,22 @@ export class DatabaseService {
         ON user_input_patterns (input_pattern)
       `)
 
-            // Create embeddings_config table
+            await client.query(`
+        CREATE INDEX IF NOT EXISTS tool_metadata_name_idx 
+        ON tool_metadata (name)
+      `)
+
+            await client.query(`
+        CREATE INDEX IF NOT EXISTS tool_metadata_category_idx 
+        ON tool_metadata (category)
+      `)
+
+            // 注意：Embeddings相关功能已弃用，现在使用LangChain进行意图识别
+            // 保留embeddings_config表结构以避免破坏现有数据，但不再主动使用
             await this.initializeEmbeddingsConfigTable()
-
-            // Sync embeddings configuration to database
-            await this.syncEmbeddingsConfigToDatabase()
-
-            // Test embeddings availability
-            await this.testEmbeddingsAvailability()
+            
+            console.log('⚠️  Embeddings功能已弃用，现在使用LangChain进行意图识别')
+            console.log('如需配置LangChain，请设置环境变量 OPENAI_API_KEY 和 OPENAI_BASE_URL')
 
             console.log('Database schema initialized successfully')
         } catch (error) {
@@ -482,6 +473,13 @@ export class DatabaseService {
     }
 
     /**
+     * Check if database is initialized
+     */
+    isInitialized(): boolean {
+        return this.initialized
+    }
+
+    /**
      * Check if pgvector is available
      */
     isVectorSearchEnabled(): boolean {
@@ -496,13 +494,17 @@ export class DatabaseService {
     }
 
     /**
-     * Initialize embeddings_config table
+     * Initialize embeddings_config table - 已弃用但保留表结构
+     * 
+     * @deprecated 现在使用LangChain进行意图识别，不再需要embeddings配置
+     * 保留此表仅为向后兼容，避免破坏现有数据
      */
     private async initializeEmbeddingsConfigTable(): Promise<void> {
         if (!this.pool) return
 
         const client = await this.pool.connect()
         try {
+            // 保留表结构但标记为已弃用
             await client.query(`
                 CREATE TABLE IF NOT EXISTS embeddings_config (
                     id SERIAL PRIMARY KEY,
@@ -523,7 +525,10 @@ export class DatabaseService {
                     fallback_type VARCHAR(50) DEFAULT 'mock',
                     metadata JSONB,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    -- 添加弃用标记
+                    deprecated BOOLEAN DEFAULT true,
+                    deprecation_note TEXT DEFAULT 'Replaced by LangChain text processor'
                 )
             `)
 
@@ -533,7 +538,7 @@ export class DatabaseService {
                 ON embeddings_config (provider)
             `)
 
-            console.log('embeddings_config table initialized successfully')
+            console.log('embeddings_config table initialized (deprecated, kept for compatibility)')
         } catch (error) {
             console.error('Failed to initialize embeddings_config table:', error)
             throw error
@@ -553,8 +558,7 @@ export class DatabaseService {
             const configPath = path.join(process.cwd(), 'config', 'embeddings.json')
             
             if (!fs.existsSync(configPath)) {
-                console.warn('embeddings.json not found, skipping sync')
-                // Create a default record marking as unavailable
+                // Create a default record marking as unavailable (no warning needed)
                 await this.upsertEmbeddingsConfig({
                     provider: 'openai',
                     model: 'text-embedding-ada-002',

@@ -1,0 +1,115 @@
+// Health Check API - Check system status
+import { NextRequest, NextResponse } from 'next/server'
+import { getDatabaseService } from '@/services/database'
+import { getLLMConfigService } from '@/services/llm-config-service'
+
+export async function GET(request: NextRequest) {
+    const checks = {
+        database: false,
+        llm_config: false,
+        llm_service: false,
+        timestamp: new Date().toISOString(),
+        details: {} as any
+    }
+
+    try {
+        // Check database connection
+        try {
+            const dbService = getDatabaseService()
+            await dbService.initialize()
+            checks.database = true
+            checks.details.database = {
+                vector_search: dbService.isVectorSearchEnabled(),
+                status: 'connected'
+            }
+        } catch (error) {
+            checks.details.database = {
+                status: 'error',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            }
+        }
+
+        // Check LLM configuration
+        try {
+            const llmConfigService = getLLMConfigService()
+            const activeConfig = await llmConfigService.getActiveLLMConfig()
+            
+            if (activeConfig) {
+                checks.llm_config = true
+                checks.details.llm_config = {
+                    name: activeConfig.name,
+                    provider: activeConfig.provider,
+                    model: activeConfig.model,
+                    is_available: activeConfig.is_available,
+                    status: 'configured'
+                }
+            } else {
+                checks.details.llm_config = {
+                    status: 'no_active_config'
+                }
+            }
+        } catch (error) {
+            checks.details.llm_config = {
+                status: 'error',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            }
+        }
+
+        // Check LLM service
+        try {
+            const { getLLMService } = await import('@/services/llm-service')
+            const llmService = getLLMService()
+            const config = llmService.getConfig()
+            
+            checks.llm_service = true
+            checks.details.llm_service = {
+                base_url: config.baseUrl,
+                timeout: config.timeout,
+                status: 'initialized'
+            }
+        } catch (error) {
+            checks.details.llm_service = {
+                status: 'error',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            }
+        }
+
+        // Check MCP system
+        try {
+            const { getMCPToolsService } = await import('@/services/mcp-tools')
+            const mcpService = getMCPToolsService()
+            const tools = await mcpService.getAvailableTools()
+            
+            checks.details.mcp_system = {
+                total_tools: tools.length,
+                status: tools.length > 0 ? 'ready' : 'no_tools',
+                ready: tools.length > 0
+            }
+        } catch (error) {
+            checks.details.mcp_system = {
+                status: 'error',
+                error: error instanceof Error ? error.message : 'Unknown error',
+                ready: false
+            }
+        }
+
+        // Overall health
+        const isHealthy = checks.database && checks.llm_config && checks.llm_service
+        const status = isHealthy ? 200 : 503
+
+        return NextResponse.json({
+            healthy: isHealthy,
+            checks,
+            version: '1.0.0',
+            environment: process.env.NODE_ENV || 'development'
+        }, { status })
+
+    } catch (error) {
+        return NextResponse.json({
+            healthy: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            checks,
+            timestamp: new Date().toISOString()
+        }, { status: 500 })
+    }
+}

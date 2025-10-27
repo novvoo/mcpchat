@@ -97,8 +97,7 @@ export class ConfigLoader {
       const configData = await fs.readFile(configPath, 'utf-8')
       return JSON.parse(configData)
     } catch (error) {
-      console.warn('Failed to load embeddings config from file:', error)
-      // Fall back to default configuration
+      // Fall back to default configuration (no warning needed)
       return {
         provider: 'openai',
         model: 'text-embedding-ada-002',

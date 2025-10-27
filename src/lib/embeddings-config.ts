@@ -31,8 +31,7 @@ export async function getEmbeddingsConfig(): Promise<EmbeddingsConfig> {
     
     return config
   } catch (error) {
-    console.error('Failed to load embeddings config:', error)
-    // Return default configuration
+    // Return default configuration (no error logging needed for missing file)
     return {
       provider: 'openai',
       model: 'text-embedding-ada-002',

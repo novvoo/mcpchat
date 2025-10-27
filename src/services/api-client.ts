@@ -1,18 +1,18 @@
 // API Client utilities for frontend-backend communication
 
-import { 
-  ChatRequest, 
-  ChatApiResponse, 
-  MCPExecuteRequest, 
-  MCPExecuteResponse, 
+import {
+  ChatRequest,
+  ChatApiResponse,
+  MCPExecuteRequest,
+  MCPExecuteResponse,
   MCPToolsResponse,
-  ErrorResponse 
+  ErrorResponse
 } from '@/types'
-import { 
-  HTTP_STATUS, 
-  ERROR_CODES, 
-  DEFAULT_CONFIG, 
-  API_ENDPOINTS 
+import {
+  HTTP_STATUS,
+  ERROR_CODES,
+  DEFAULT_CONFIG,
+  API_ENDPOINTS
 } from '@/types/constants'
 
 // API response wrapper
@@ -72,7 +72,7 @@ export class TimeoutError extends ApiClientError {
 /**
  * Sleep utility for retry delays
  */
-const sleep = (ms: number): Promise<void> => 
+const sleep = (ms: number): Promise<void> =>
   new Promise(resolve => setTimeout(resolve, ms))
 
 /**
@@ -134,7 +134,7 @@ export class ApiClient {
     }
 
     let lastError: Error | null = null
-    
+
     for (let attempt = 0; attempt <= retryAttempts; attempt++) {
       try {
         // Create timeout controller
@@ -142,7 +142,7 @@ export class ApiClient {
         const timeoutId = setTimeout(() => timeoutController.abort(), timeout)
 
         // Combine signals
-        const combinedSignal = signal ? 
+        const combinedSignal = signal ?
           this.combineAbortSignals([signal, timeoutController.signal]) :
           timeoutController.signal
 
@@ -177,12 +177,12 @@ export class ApiClient {
           }
 
           lastError = error
-          
+
           if (attempt < retryAttempts && isRetryableError(error)) {
             await sleep(this.config.retryDelay * Math.pow(2, attempt)) // Exponential backoff
             continue
           }
-          
+
           throw error
         }
 
@@ -226,7 +226,7 @@ export class ApiClient {
    */
   private combineAbortSignals(signals: AbortSignal[]): AbortSignal {
     const controller = new AbortController()
-    
+
     for (const signal of signals) {
       if (signal.aborted) {
         controller.abort()
@@ -234,7 +234,7 @@ export class ApiClient {
       }
       signal.addEventListener('abort', () => controller.abort())
     }
-    
+
     return controller.signal
   }
 
@@ -332,12 +332,40 @@ export const mcpApi = {
    * Get tool execution history
    */
   async getExecutionHistory(
-    limit = 10, 
-    includeStats = false, 
+    limit = 10,
+    includeStats = false,
     options: RequestOptions = {}
   ): Promise<ApiResponse<any>> {
     const url = `${API_ENDPOINTS.MCP_EXECUTE}?limit=${limit}&stats=${includeStats}`
     return apiClient.get(url, options)
+  },
+
+  /**
+   * Get MCP system status
+   */
+  async getStatus(options: RequestOptions = {}): Promise<ApiResponse<any>> {
+    return apiClient.get(API_ENDPOINTS.MCP_STATUS, options)
+  },
+
+  /**
+   * Reinitialize MCP system
+   */
+  async reinitialize(force = false, options: RequestOptions = {}): Promise<ApiResponse<any>> {
+    return apiClient.post(API_ENDPOINTS.MCP_STATUS, { action: 'reinitialize', force }, options)
+  },
+
+  /**
+   * Refresh MCP status
+   */
+  async refreshStatus(options: RequestOptions = {}): Promise<ApiResponse<any>> {
+    return apiClient.post('/api/mcp/refresh', {}, options)
+  },
+
+  /**
+   * Get refresh status information
+   */
+  async getRefreshStatus(options: RequestOptions = {}): Promise<ApiResponse<any>> {
+    return apiClient.get('/api/mcp/refresh', options)
   }
 }
 

@@ -12,11 +12,20 @@
     "db:check": "node scripts/pre-start-check.js",
     "db:verify": "node scripts/verify-all-tables.js",
     "db:init:mcp": "node scripts/init-mcp-config-table.js",
+    "db:init:llm": "node scripts/init-llm-config-table.js",
+    "db:startup-check": "node scripts/startup-check.js",
+    "db:startup-fix": "node scripts/startup-check.js --fix",
+
+    "test:langchain-parsing": "node scripts/test-langchain-parsing.js",
     "test:mcp:config": "node scripts/test-api-mcp-config.js",
     "test:mcp:stdio": "node scripts/test-mcp-connection.js stdio",
     "test:mcp:http": "node scripts/test-mcp-connection.js http"
   },
   "dependencies": {
+    "@langchain/core": "^1.0.1",
+    "@langchain/openai": "^1.0.0",
+    "@langchain/textsplitters": "^1.0.0",
+    "langchain": "^1.0.1",
     "lucide-react": "^0.546.0",
     "next": "16.0.0",
     "pg": "^8.16.3",

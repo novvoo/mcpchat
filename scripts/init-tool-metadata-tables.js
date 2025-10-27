@@ -185,5 +185,11 @@ async function initializeToolMetadataTables() {
   }
 }
 
-// Run the initialization
-initializeToolMetadataTables().catch(console.error)
+
+// Run the initialization if called directly
+if (require.main === module) {
+  initializeToolMetadataTables().catch(console.error)
+}
+
+// Export the function for use by other scripts
+module.exports = { initializeToolMetadataTables }

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSmartRouter } from '@/services/smart-router'
-import { getMCPIntentRecognizer } from '@/services/mcp-intent-recognizer'
 
 /**
  * 测试智能路由功能的API端点
@@ -18,36 +17,31 @@ export async function POST(request: NextRequest) {
     }
 
     const smartRouter = getSmartRouter()
-    const intentRecognizer = getMCPIntentRecognizer()
 
     let result: any = {}
 
     switch (testMode) {
       case 'intent-only':
-        // 只测试意图识别
-        const intent = await intentRecognizer.recognizeIntent(message)
+        // 意图识别已移除，返回提示信息
         result = {
           testMode: 'intent-only',
           message,
-          intent,
-          suggestions: await intentRecognizer.getToolSuggestions(message)
+          notice: 'Intent recognition service has been removed',
+          alternative: 'Use tool metadata service for tool suggestions'
         }
         break
 
       case 'routing-info':
         // 测试路由决策但不执行
-        const routingIntent = await intentRecognizer.recognizeIntent(message)
         const availableTools = await smartRouter.getAvailableTools()
         const mcpConnected = await smartRouter.testMCPConnection()
         
         result = {
           testMode: 'routing-info',
           message,
-          intent: routingIntent,
           availableTools,
           mcpConnected,
-          wouldUseMCP: routingIntent.needsMCP && routingIntent.confidence >= 0.4,
-          reasoning: routingIntent.reasoning
+          notice: 'Intent recognition has been removed, using enhanced routing'
         }
         break
 
@@ -57,7 +51,7 @@ export async function POST(request: NextRequest) {
         const response = await smartRouter.processMessage(message, undefined, {
           enableMCPFirst: true,
           enableLLMFallback: true,
-          mcpConfidenceThreshold: 0.4,  // 调整为与新置信度系统匹配
+          mcpConfidenceThreshold: 0.4,
           maxToolCalls: 3
         })
         
@@ -99,12 +93,10 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const smartRouter = getSmartRouter()
-    const intentRecognizer = getMCPIntentRecognizer()
 
     const availableTools = await smartRouter.getAvailableTools()
     const mcpConnected = await smartRouter.testMCPConnection()
     const routingStats = smartRouter.getRoutingStats()
-    const recognizerStats = intentRecognizer.getStats()
 
     return NextResponse.json({
       success: true,
@@ -114,9 +106,8 @@ export async function GET(request: NextRequest) {
         availableTools: availableTools.length,
         toolNames: availableTools.map(t => t.name),
         routingStats,
-        recognizerStats,
         capabilities: {
-          intentRecognition: true,
+          intentRecognition: false, // 已移除
           mcpDirectExecution: mcpConnected,
           llmFallback: true,
           hybridMode: true

@@ -1,14 +1,17 @@
-// Tool Indexer - Automatically index MCP tools for vector search
+// Tool Indexer Service - Manages tool indexing operations
 
+import { Tool } from '@/types'
 import { getToolVectorStore } from './tool-vector-store'
 import { getMCPToolsService } from './mcp-tools'
+import { getMCPManager } from './mcp-manager'
 
 /**
- * Tool Indexer - Manages automatic indexing of MCP tools
+ * Tool Indexer Service - Coordinates tool indexing operations
  */
 export class ToolIndexer {
   private static instance: ToolIndexer
-  private indexing: boolean = false
+  private indexing = false
+  private lastIndexTime: Date | null = null
 
   private constructor() {}
 
@@ -20,120 +23,122 @@ export class ToolIndexer {
   }
 
   /**
-   * Index all available MCP tools
+   * Check if indexing is currently in progress
    */
-  async indexAllTools(): Promise<void> {
+  isIndexing(): boolean {
+    return this.indexing
+  }
+
+  /**
+   * Get indexing statistics
+   */
+  async getIndexStats(): Promise<{
+    totalTools: number
+    toolsWithLangChain: number
+    toolsLegacy: number
+    lastIndexTime: Date | null
+    isIndexing: boolean
+  }> {
+    const vectorStore = getToolVectorStore()
+    const stats = await vectorStore.getStats()
+    
+    return {
+      ...stats,
+      lastIndexTime: this.lastIndexTime,
+      isIndexing: this.indexing
+    }
+  }
+
+  /**
+   * Reindex all tools from MCP servers
+   */
+  async reindexAllTools(): Promise<void> {
     if (this.indexing) {
-      console.log('Indexing already in progress, skipping')
+      console.log('Tool indexing already in progress, skipping...')
       return
     }
 
     this.indexing = true
+    console.log('Starting tool reindexing...')
 
     try {
-      const vectorStore = getToolVectorStore()
-      
-      // Check if vector store is available
-      if (!vectorStore.isReady()) {
-        console.log('Vector store not ready, initializing...')
-        await vectorStore.initialize()
-        
-        if (!vectorStore.isReady()) {
-          console.log('Vector store initialization failed, skipping indexing')
-          return
-        }
-      }
-
-      console.log('Starting tool indexing...')
-
+      // Get all available tools
       const mcpToolsService = getMCPToolsService()
       const tools = await mcpToolsService.getAvailableTools()
+      
+      console.log(`Found ${tools.length} tools to index`)
 
-      if (tools.length === 0) {
-        console.log('No tools available to index')
-        return
-      }
-
-      console.log(`Indexing ${tools.length} tools...`)
-
-      // Index tools (assuming all from same server for now)
-      // In production, you'd want to track which server each tool comes from
-      await vectorStore.indexTools(tools, 'default')
-
-      const stats = await vectorStore.getStats()
-      console.log('Tool indexing completed:', stats)
+      // Clear existing indexes
+      const vectorStore = getToolVectorStore()
+      await vectorStore.clearAllTools()
+      
+      // Index each tool
+      await this.indexTools(tools)
+      
+      this.lastIndexTime = new Date()
+      console.log(`Tool reindexing completed: ${tools.length} tools indexed`)
+      
     } catch (error) {
-      console.error('Failed to index tools:', error)
+      console.error('Tool reindexing failed:', error)
+      throw error
     } finally {
       this.indexing = false
     }
   }
 
   /**
-   * Re-index tools (clear and rebuild)
+   * Index a list of tools
    */
-  async reindexTools(): Promise<void> {
-    console.log('Re-indexing all tools...')
+  private async indexTools(tools: Tool[]): Promise<void> {
+    const vectorStore = getToolVectorStore()
+    await vectorStore.initialize()
     
-    try {
-      const vectorStore = getToolVectorStore()
-      
-      if (!vectorStore.isReady()) {
-        console.log('Vector store not ready')
-        return
+    // Get MCP manager to determine server names
+    const mcpManager = getMCPManager()
+    const registry = mcpManager.getRegistry()
+    
+    for (const tool of tools) {
+      try {
+        // Determine which server provides this tool
+        let serverName = 'unknown'
+        
+        for (const [name, server] of registry.servers) {
+          if (server.isConnected()) {
+            try {
+              const serverTools = await server.listTools()
+              if (serverTools.some(t => t.name === tool.name)) {
+                serverName = name
+                break
+              }
+            } catch (error) {
+              // Continue checking other servers
+            }
+          }
+        }
+        
+        // Index the tool (without embedding for now)
+        await vectorStore.indexTool(tool, serverName)
+        
+        console.log(`Indexed tool: ${tool.name} (server: ${serverName})`)
+        
+      } catch (error) {
+        console.warn(`Failed to index tool ${tool.name}:`, error)
       }
-
-      // Clear existing tools
-      const { getDatabaseService } = await import('./database')
-      const dbService = getDatabaseService()
-      await dbService.query('TRUNCATE TABLE mcp_tools')
-      
-      console.log('Cleared existing tool index')
-
-      // Re-index
-      await this.indexAllTools()
-    } catch (error) {
-      console.error('Failed to re-index tools:', error)
     }
   }
 
   /**
-   * Check indexing status
+   * Index a single tool
    */
-  async getIndexStatus(): Promise<{
-    isIndexing: boolean
-    stats: {
-      totalTools: number
-      toolsByServer: Record<string, number>
-    }
-  }> {
+  async indexTool(tool: Tool, serverName: string): Promise<void> {
     const vectorStore = getToolVectorStore()
-    
-    if (!vectorStore.isReady()) {
-      return {
-        isIndexing: this.indexing,
-        stats: { totalTools: 0, toolsByServer: {} }
-      }
-    }
-
-    const stats = await vectorStore.getStats()
-    
-    return {
-      isIndexing: this.indexing,
-      stats
-    }
+    await vectorStore.initialize()
+    await vectorStore.indexTool(tool, serverName)
+    console.log(`Indexed single tool: ${tool.name}`)
   }
 }
 
 /**
- * Convenience function
+ * Convenience function to get the tool indexer instance
  */
 export const getToolIndexer = () => ToolIndexer.getInstance()
-
-/**
- * Auto-index tools on startup
- */
-export const autoIndexTools = async () => {
-  const indexer = getToolIndexer()
-  await indexer.indexAllTools()
-}

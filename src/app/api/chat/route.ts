@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getLLMService, LLMServiceError } from '@/services/llm-service'
-import { getSmartRouter } from '@/services/smart-router'
+import { getEnhancedSmartRouter } from '@/services/enhanced-smart-router'
 import { getToolOrchestrator } from '@/services/tool-orchestrator'
 import { validateChatRequest } from '@/types/validation'
 import { HTTP_STATUS, ERROR_CODES } from '@/types/constants'
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract request data
-    const { message, messages, apiKey, conversationId, enableTools = true } = body
+    const { message, messages, apiKey, conversationId, enableTools = true, skipSmartRouter = false, useLangChain = true } = body
     
     // Initialize LLM service
     const llmService = getLLMService()
@@ -48,15 +48,41 @@ export async function POST(request: NextRequest) {
     let result: any
 
     if (message && typeof message === 'string') {
-      // 使用智能路由处理消息 - 优先识别MCP工具
-      const smartRouter = getSmartRouter()
-      
-      result = await smartRouter.processMessage(message, conversationId, {
-        enableMCPFirst: true,
-        enableLLMFallback: true,
-        mcpConfidenceThreshold: 0.4,  // 调整为与新置信度系统匹配
-        maxToolCalls: 5
-      })
+      if (skipSmartRouter) {
+        // 跳过Smart Router，直接使用LLM
+        const chatMessages: ChatMessage[] = [
+          {
+            role: 'system',
+            content: '你是一个智能助手，专注于回答用户的问题和提供帮助。请直接回答用户的问题。'
+          },
+          {
+            role: 'user',
+            content: message
+          }
+        ]
+
+        const response = await llmService.sendMessage(chatMessages)
+        const responseConversationId = conversationId || `direct_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
+
+        result = {
+          response: response.content,
+          source: 'direct-llm',
+          conversationId: responseConversationId,
+          toolCalls: undefined,
+          toolResults: undefined
+        }
+      } else {
+        // 使用增强版智能路由处理消息 - 基于LangChain的意图识别
+        const enhancedRouter = getEnhancedSmartRouter()
+        
+        result = await enhancedRouter.processMessage(message, conversationId, {
+          enableMCPFirst: true,
+          enableLLMFallback: true,
+          mcpConfidenceThreshold: 0.4,  // 调整为与新置信度系统匹配
+          maxToolCalls: 5,
+          useLangChain  // 从请求参数中获取，默认为true
+        })
+      }
 
       // Prepare API response
       const apiResponse: ChatApiResponse = {

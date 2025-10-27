@@ -1,294 +1,210 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
+import { useState } from 'react'
+
+interface TestResult {
+  success: boolean
+  source?: string
+  confidence?: number
+  reasoning?: string
+  response?: string
+  toolResults?: any[]
+  error?: string
+}
 
 export default function TestSmartRouterPage() {
-    const [message, setMessage] = useState('')
-    const [testMode, setTestMode] = useState('full')
-    const [result, setResult] = useState<any>(null)
-    const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('如何从 8、8、4、13 从简单的加减乘除运算得到 24,每个数都用一次')
+  const [useLangChain, setUseLangChain] = useState(true)
+  const [result, setResult] = useState<TestResult | null>(null)
+  const [loading, setLoading] = useState(false)
 
-    const [testExamples, setTestExamples] = useState<string[]>([])
-    const [loadingExamples, setLoadingExamples] = useState(true)
+  const testSmartRouter = async () => {
+    setLoading(true)
+    setResult(null)
 
-    useEffect(() => {
-        loadTestExamples()
-    }, [])
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message,
+          useLangChain
+        })
+      })
 
-    const loadTestExamples = async () => {
-        setLoadingExamples(true)
-        try {
-            // 从数据库加载样例问题
-            const response = await fetch('/api/sample-problems?action=recommended&limit=4')
-            const result = await response.json()
-            
-            const dynamicExamples: string[] = []
-            
-            if (result.success && result.data.length > 0) {
-                result.data.forEach((problem: any) => {
-                    const testInput = generateTestInput(problem)
-                    if (testInput) {
-                        dynamicExamples.push(testInput)
-                    }
-                })
-            }
-            
-            // 添加一些预定义的示例
-            const staticExamples = [
-                '什么是N皇后问题？',
-                'solve n queens',
-                'run example'
-            ]
-            
-            setTestExamples([...dynamicExamples, ...staticExamples])
-        } catch (error) {
-            console.error('加载测试示例失败:', error)
-            // 备用示例 - 尝试从默认样例问题生成
-            try {
-                const fallbackResponse = await fetch('/api/sample-problems?action=by-tool&tool_name=solve_n_queens')
-                const fallbackResult = await fallbackResponse.json()
-                
-                const fallbackExamples = ['什么是N皇后问题？', 'solve n queens', 'run example']
-                
-                if (fallbackResult.success && fallbackResult.data.length > 0) {
-                    const problem = fallbackResult.data[0]
-                    const testInput = generateTestInput(problem)
-                    if (testInput) {
-                        fallbackExamples.unshift(testInput)
-                    }
-                }
-                
-                setTestExamples(fallbackExamples)
-            } catch {
-                // 最终备用
-                setTestExamples([
-                    '请处理一个算法问题',
-                    '运行一个示例',
-                    '什么是N皇后问题？',
-                    'solve n queens',
-                    'run example'
-                ])
-            }
-        } finally {
-            setLoadingExamples(false)
-        }
+      const data = await response.json()
+      
+      if (data.success) {
+        setResult({
+          success: true,
+          source: data.source,
+          confidence: data.confidence,
+          reasoning: data.reasoning,
+          response: data.data?.response,
+          toolResults: data.toolResults
+        })
+      } else {
+        setResult({
+          success: false,
+          error: data.error?.message || '未知错误'
+        })
+      }
+    } catch (error) {
+      setResult({
+        success: false,
+        error: error instanceof Error ? error.message : '网络错误'
+      })
+    } finally {
+      setLoading(false)
     }
+  }
 
-    const generateTestInput = (problem: any): string | null => {
-        const toolName = problem.tool_name
-        const params = problem.parameters || {}
-        
-        switch (toolName) {
-            case 'solve_n_queens':
-                const n = params.n || 8
-                return `解决${n}皇后问题`
-                
-            case 'solve_sudoku':
-                return '帮我解数独'
-                
-            case 'run_example':
-                const exampleType = params.example_type || 'basic'
-                return `run example ${exampleType}`
-                
-            default:
-                if (problem.title) {
-                    return `请处理：${problem.title}`
-                }
-                return null
-        }
-    }
+  const testCases = [
+    '如何从 8、8、4、13 从简单的加减乘除运算得到 24,每个数都用一次',
+    '用1,2,3,4这四个数字通过加减乘除得到24',
+    '解决8皇后问题',
+    '帮我解一个数独',
+    '运行一个基础示例',
+    '显示系统信息',
+    '什么是机器学习？',
+    '如何优化投资组合？'
+  ]
 
-    const handleTest = async () => {
-        if (!message.trim()) return
-
-        setLoading(true)
-        try {
-            const response = await fetch('/api/test-smart-router', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    message: message.trim(),
-                    testMode
-                })
-            })
-
-            const data = await response.json()
-            setResult(data)
-        } catch (error) {
-            setResult({
-                success: false,
-                error: error instanceof Error ? error.message : 'Unknown error'
-            })
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    const handleExampleClick = (example: string) => {
-        setMessage(example)
-    }
-
-    return (
-        <div className="container mx-auto p-6 max-w-4xl">
-            <h1 className="text-2xl font-bold mb-6">Smart Router Test</h1>
-
-            <div className="space-y-6">
-                {/* Input Section */}
-                <div className="bg-white p-6 rounded-lg shadow">
-                    <h2 className="text-lg font-semibold mb-4">Test Input</h2>
-
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium mb-2">Test Message:</label>
-                            <input
-                                type="text"
-                                value={message}
-                                onChange={(e) => setMessage(e.target.value)}
-                                className="w-full p-3 border border-gray-300 rounded-md"
-                                placeholder="Enter message to test..."
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium mb-2">Test Mode:</label>
-                            <select
-                                value={testMode}
-                                onChange={(e) => setTestMode(e.target.value)}
-                                className="w-full p-3 border border-gray-300 rounded-md"
-                            >
-                                <option value="full">Full Test (Intent + Metadata + Router)</option>
-                                <option value="intent">Intent Recognition Only</option>
-                                <option value="metadata">Tool Metadata Only</option>
-                                <option value="router">Smart Router Only</option>
-                            </select>
-                        </div>
-
-                        <Button
-                            onClick={handleTest}
-                            disabled={loading || !message.trim()}
-                            className="w-full"
-                        >
-                            {loading ? 'Testing...' : 'Test Smart Router'}
-                        </Button>
-                    </div>
-                </div>
-
-                {/* Examples Section */}
-                <div className="bg-white p-6 rounded-lg shadow">
-                    <h2 className="text-lg font-semibold mb-4">Test Examples</h2>
-                    <div className="grid grid-cols-2 gap-2">
-                        {testExamples.map((example, index) => (
-                            <button
-                                key={index}
-                                onClick={() => handleExampleClick(example)}
-                                className="p-2 text-left bg-gray-100 hover:bg-gray-200 rounded border text-sm"
-                            >
-                                {example}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Results Section */}
-                {result && (
-                    <div className="bg-white p-6 rounded-lg shadow">
-                        <h2 className="text-lg font-semibold mb-4">Test Results</h2>
-
-                        {result.success ? (
-                            <div className="space-y-4">
-                                {/* Intent Recognition Results */}
-                                {result.results.intentRecognition && (
-                                    <div className="border-l-4 border-blue-500 pl-4">
-                                        <h3 className="font-medium text-blue-700">Intent Recognition</h3>
-                                        <div className="mt-2 text-sm">
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <div>Needs MCP: <span className={result.results.intentRecognition.needsMCP ? 'text-green-600 font-bold' : 'text-red-600'}>{result.results.intentRecognition.needsMCP ? 'YES' : 'NO'}</span></div>
-                                                <div>Confidence: <span className="font-mono">{(result.results.intentRecognition.confidence * 100).toFixed(1)}%</span></div>
-                                                <div>Suggested Tool: <span className="font-mono">{result.results.intentRecognition.suggestedTool || 'None'}</span></div>
-                                            </div>
-                                            <div className="mt-2">
-                                                <div className="text-gray-600">Reasoning: {result.results.intentRecognition.reasoning}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Tool Suggestions Results */}
-                                {result.results.toolSuggestions && (
-                                    <div className="border-l-4 border-green-500 pl-4">
-                                        <h3 className="font-medium text-green-700">Tool Suggestions</h3>
-                                        <div className="mt-2">
-                                            {result.results.toolSuggestions.length > 0 ? (
-                                                <div className="space-y-2">
-                                                    {result.results.toolSuggestions.map((suggestion: any, index: number) => (
-                                                        <div key={index} className="bg-gray-50 p-2 rounded text-sm">
-                                                            <div className="font-mono font-bold">{suggestion.toolName}</div>
-                                                            <div>Confidence: {(suggestion.confidence * 100).toFixed(1)}%</div>
-                                                            <div>Keywords: {suggestion.keywords.join(', ')}</div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <div className="text-gray-500">No tool suggestions found</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Smart Router Results */}
-                                {result.results.smartRouterResult && (
-                                    <div className="border-l-4 border-purple-500 pl-4">
-                                        <h3 className="font-medium text-purple-700">Smart Router Result</h3>
-                                        <div className="mt-2 text-sm">
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <div>Source: <span className="font-mono font-bold">{result.results.smartRouterResult.source}</span></div>
-                                                <div>Confidence: <span className="font-mono">{result.results.smartRouterResult.confidence ? (result.results.smartRouterResult.confidence * 100).toFixed(1) + '%' : 'N/A'}</span></div>
-                                            </div>
-                                            <div className="mt-2">
-                                                <div className="text-gray-600">Reasoning: {result.results.smartRouterResult.reasoning}</div>
-                                            </div>
-                                            <div className="mt-2">
-                                                <div className="font-medium">Response:</div>
-                                                <div className="bg-gray-50 p-2 rounded mt-1 font-mono text-xs max-h-32 overflow-y-auto">
-                                                    {result.results.smartRouterResult.response}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Smart Router Error */}
-                                {result.results.smartRouterError && (
-                                    <div className="border-l-4 border-red-500 pl-4">
-                                        <h3 className="font-medium text-red-700">Smart Router Error</h3>
-                                        <div className="mt-2 text-sm text-red-600">
-                                            {result.results.smartRouterError.message}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        ) : (
-                            <div className="text-red-600">
-                                <div className="font-medium">Test Failed</div>
-                                <div className="text-sm mt-1">{result.error}</div>
-                            </div>
-                        )}
-
-                        {/* Raw JSON */}
-                        <details className="mt-4">
-                            <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-800">
-                                Show Raw JSON
-                            </summary>
-                            <pre className="mt-2 bg-gray-100 p-3 rounded text-xs overflow-auto max-h-64">
-                                {JSON.stringify(result, null, 2)}
-                            </pre>
-                        </details>
-                    </div>
-                )}
-            </div>
+  return (
+    <div className="container mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-6">Smart Router 测试 (LangChain增强)</h1>
+      
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold mb-4">测试配置</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">测试消息</label>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              className="w-full p-3 border rounded-lg h-24"
+              placeholder="输入要测试的消息..."
+            />
+          </div>
+          
+          <div className="flex items-center space-x-4">
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                checked={useLangChain}
+                onChange={(e) => setUseLangChain(e.target.checked)}
+                className="mr-2"
+              />
+              <span>使用 LangChain 增强解析</span>
+            </label>
+            <span className="text-sm text-gray-600">
+              {useLangChain ? '(推荐，更精确)' : '(传统模式)'}
+            </span>
+          </div>
         </div>
-    )
+      </div>
+
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold mb-4">快速测试用例</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {testCases.map((testCase, index) => (
+            <button
+              key={index}
+              onClick={() => setMessage(testCase)}
+              className="text-left p-2 text-sm bg-gray-100 hover:bg-gray-200 rounded border"
+            >
+              {testCase}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <button
+          onClick={testSmartRouter}
+          disabled={loading || !message.trim()}
+          className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? '测试中...' : '测试 Smart Router'}
+        </button>
+      </div>
+
+      {result && (
+        <div className="mb-6">
+          <h2 className="text-xl font-semibold mb-4">测试结果</h2>
+          <div className="border rounded-lg p-4">
+            <div className="mb-4">
+              <span className={`inline-block px-3 py-1 rounded text-sm font-medium ${
+                result.success 
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-red-100 text-red-800'
+              }`}>
+                {result.success ? '成功' : '失败'}
+              </span>
+              
+              {result.source && (
+                <span className="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm ml-2">
+                  来源: {result.source}
+                </span>
+              )}
+              
+              {result.confidence !== undefined && (
+                <span className="inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded text-sm ml-2">
+                  置信度: {(result.confidence * 100).toFixed(1)}%
+                </span>
+              )}
+            </div>
+
+            {result.reasoning && (
+              <div className="mb-4">
+                <h3 className="font-semibold mb-2">推理过程:</h3>
+                <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded">
+                  {result.reasoning}
+                </p>
+              </div>
+            )}
+
+            {result.toolResults && result.toolResults.length > 0 && (
+              <div className="mb-4">
+                <h3 className="font-semibold mb-2">工具执行结果:</h3>
+                <pre className="text-sm bg-gray-50 p-3 rounded overflow-x-auto">
+                  {JSON.stringify(result.toolResults, null, 2)}
+                </pre>
+              </div>
+            )}
+
+            {result.response && (
+              <div className="mb-4">
+                <h3 className="font-semibold mb-2">最终响应:</h3>
+                <div className="bg-gray-50 p-3 rounded whitespace-pre-wrap">
+                  {result.response}
+                </div>
+              </div>
+            )}
+
+            {result.error && (
+              <div className="mb-4">
+                <h3 className="font-semibold mb-2 text-red-600">错误信息:</h3>
+                <p className="text-red-700 bg-red-50 p-3 rounded">
+                  {result.error}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-blue-50 p-4 rounded-lg">
+        <h3 className="font-semibold text-blue-800 mb-2">说明</h3>
+        <ul className="text-blue-700 text-sm space-y-1">
+          <li>• Smart Router 现在默认使用 LangChain 增强解析</li>
+          <li>• 支持24点游戏、N皇后、数独等数学问题的自动识别</li>
+          <li>• 提供详细的推理过程和置信度评分</li>
+          <li>• 可以选择关闭 LangChain 使用传统解析模式</li>
+        </ul>
+      </div>
+    </div>
+  )
 }

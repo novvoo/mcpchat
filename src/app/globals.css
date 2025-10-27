@@ -416,6 +416,21 @@ html {
   background-color: var(--gray-200);
 }
 
+/* Gradient utilities */
+.from-gray-50 {
+  --tw-gradient-from: var(--gray-50);
+  --tw-gradient-to: rgba(249, 250, 251, 0);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+
+.to-gray-100 {
+  --tw-gradient-to: var(--gray-100);
+}
+
+.bg-gradient-to-br {
+  background-image: linear-gradient(to bottom right, var(--tw-gradient-stops));
+}
+
 /* Alternative color options */
 .bg-accent-light {
   background-color: var(--accent);

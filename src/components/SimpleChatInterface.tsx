@@ -2,9 +2,10 @@
 
 // SimpleChatInterface Component - Simplified chat interface using useChat hook
 
-import React, { useRef } from 'react'
+import React, { useRef, useCallback } from 'react'
 import { Message, ToolCall } from '@/types'
 import { useChat } from '@/hooks/useChat'
+import { useMCPStatus } from '@/hooks/useMCPStatus'
 import { MessageInput } from './MessageInput'
 import { MessageList, MessageListHandle } from './MessageList'
 import { ErrorState, ChatEmptyState } from './EmptyState'
@@ -40,12 +41,33 @@ export const SimpleChatInterface: React.FC<SimpleChatInterfaceProps> = ({
   placeholder = "Type your message..."
 }) => {
   const messageListRef = useRef<MessageListHandle>(null)
-  
+
+  // MCP系统状态管理 - 使用全局状态管理器
+  const { status: mcpStatus, isLoading: mcpLoading, checkStatus } = useMCPStatus({
+    onStatusChange: (status) => {
+      if (status.ready) {
+        console.log('MCP系统已就绪，工具数量:', status.details.totalTools)
+      } else if (status.error) {
+        console.warn('MCP系统状态异常:', status.error)
+      } else {
+        console.log('MCP系统状态更新:', {
+          configLoaded: status.configLoaded,
+          serversConnected: status.serversConnected,
+          toolsLoaded: status.toolsLoaded,
+          keywordsMapped: status.keywordsMapped
+        })
+      }
+    },
+    onInitializationComplete: () => {
+      console.log('🎉 MCP系统初始化完成！')
+    }
+  })
+
   const {
     messages,
     isLoading,
     error,
-    sendMessage,
+    sendMessage: originalSendMessage,
     clearMessages,
     retryLastMessage,
     setError
@@ -55,6 +77,25 @@ export const SimpleChatInterface: React.FC<SimpleChatInterfaceProps> = ({
     conversationId: initialConversationId,
     onError
   })
+
+  // 包装sendMessage，在MCP系统未就绪时提供友好提示
+  const sendMessage = useCallback(async (content: string) => {
+    // 如果MCP系统正在初始化，等待一下
+    if (mcpLoading) {
+      setError('系统正在初始化中，请稍候...')
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+
+    // 如果MCP系统未就绪但不是致命错误，仍然允许发送（会降级到纯LLM模式）
+    if (mcpStatus && !mcpStatus.ready && mcpStatus.error) {
+      console.warn('MCP系统未完全就绪，将使用纯LLM模式处理请求')
+    }
+
+    await originalSendMessage(content)
+  }, [originalSendMessage, mcpStatus, mcpLoading, setError])
+
+
 
   // Show error state if there's a critical error and no messages
   if (error && messages.length === 0) {
@@ -80,15 +121,54 @@ export const SimpleChatInterface: React.FC<SimpleChatInterfaceProps> = ({
             </h1>
             <div className="space-y-1">
               <p className="text-xs sm:text-sm text-muted-foreground truncate">
-                {messages.length === 0 
-                  ? "Start a conversation with AI tools" 
+                {messages.length === 0
+                  ? "Start a conversation with AI tools"
                   : `${messages.length} message${messages.length !== 1 ? 's' : ''}`
                 }
               </p>
               <KeywordMappingStatus className="max-w-xs" showDetails={false} />
+              {/* MCP系统状态指示器 */}
+              {mcpStatus && (
+                <div className="flex items-center gap-1 text-xs">
+                  <div className={`w-2 h-2 rounded-full ${mcpStatus.ready
+                    ? 'bg-green-500'
+                    : mcpLoading
+                      ? 'bg-yellow-500 animate-pulse'
+                      : 'bg-red-500'
+                    }`} />
+                  <span className="text-muted-foreground">
+                    {mcpStatus.ready
+                      ? `MCP就绪 (${mcpStatus.details.totalTools}工具)`
+                      : mcpLoading
+                        ? 'MCP初始化中...'
+                        : 'MCP未就绪'}
+                  </span>
+                  <button
+                    onClick={async () => {
+                      // 先触发API刷新
+                      try {
+                        const { mcpApi } = await import('@/services/api-client')
+                        await mcpApi.refreshStatus()
+                      } catch (error) {
+                        console.warn('API刷新失败:', error)
+                      }
+                      // 然后检查状态
+                      checkStatus()
+                    }}
+                    disabled={mcpLoading}
+                    className="ml-1 p-0.5 text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    title="刷新MCP状态"
+                    aria-label="刷新MCP状态"
+                  >
+                    <svg className={`w-3 h-3 ${mcpLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-          
+
           <div className="flex items-center gap-1 sm:gap-2 ml-2">
             {/* Admin Panel Link */}
             <a
@@ -102,9 +182,9 @@ export const SimpleChatInterface: React.FC<SimpleChatInterfaceProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </a>
-            
+
             <ThemeToggle />
-            
+
             {messages.length > 0 && (
               <>
                 <button
@@ -117,7 +197,7 @@ export const SimpleChatInterface: React.FC<SimpleChatInterfaceProps> = ({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
                   </svg>
                 </button>
-                
+
                 <button
                   onClick={clearMessages}
                   className="p-1.5 sm:p-2 text-muted-foreground hover:text-destructive transition-colors rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

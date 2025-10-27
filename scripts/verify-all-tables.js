@@ -30,14 +30,12 @@ async function verifyAllTables() {
     try {
         console.log('✓ 连接数据库成功\n');
 
-        // 所有必需的表及其关键列
+        // 所有必需的表及其关键列 (已移除embeddings相关表，现在使用LangChain)
         const requiredTables = {
-            'mcp_tools': ['id', 'name', 'description', 'embedding', 'keywords', 'parameter_mappings'],
-            'keyword_embeddings': ['id', 'keyword', 'embedding', 'tool_names'],
+            'mcp_tools': ['id', 'name', 'description', 'keywords', 'parameter_mappings'],
             'tool_keyword_mappings': ['id', 'tool_name', 'keyword', 'confidence', 'source'],
             'tool_parameter_mappings': ['id', 'tool_name', 'user_input', 'mcp_parameter'],
             'tool_usage_stats': ['id', 'tool_name', 'user_input', 'success'],
-            'tool_keyword_embeddings': ['id', 'tool_name', 'keyword', 'embedding'],
             'tool_name_patterns': ['id', 'pattern', 'keywords', 'examples', 'updated_at'],
             'keyword_generation_log': ['id', 'tool_name', 'generated_keywords', 'generation_method'],
             'user_input_patterns': ['id', 'input_pattern', 'matched_tools', 'total_attempts']

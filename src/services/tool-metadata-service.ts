@@ -120,27 +120,7 @@ export class ToolMetadataService {
         )
       `)
 
-            // 创建关键词embeddings表（使用pgvector）
-            await client.query(`
-        CREATE TABLE IF NOT EXISTS tool_keyword_embeddings (
-          id SERIAL PRIMARY KEY,
-          tool_name VARCHAR(255) NOT NULL,
-          keyword VARCHAR(255) NOT NULL,
-          embedding vector(1536),
-          source VARCHAR(50) DEFAULT 'manual',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(tool_name, keyword)
-        )
-      `)
-
-            // 创建embeddings索引以提高查询性能
-            await client.query(`
-        CREATE INDEX IF NOT EXISTS tool_keyword_embeddings_vector_idx 
-        ON tool_keyword_embeddings 
-        USING ivfflat (embedding vector_cosine_ops)
-        WITH (lists = 100)
-      `)
+            // Note: tool_keyword_embeddings table creation removed as embeddings are no longer used
 
             // 创建工具名称模式表
             await client.query(`
@@ -630,54 +610,19 @@ export class ToolMetadataService {
     }
 
     /**
-     * 添加语义相似关键词（使用pgvector）
+     * 添加语义相似关键词（已禁用 - embeddings 功能已移除）
      */
     private async addSemanticKeywords(toolName: string, description: string, keywords: Set<string>): Promise<void> {
-        try {
-            // 检查是否启用了向量搜索
-            const { getEmbeddingService } = await import('./embedding-service')
-            const embeddingService = getEmbeddingService()
-            await embeddingService.initialize()
-
-            // 为工具描述生成嵌入向量
-            const embedding = await embeddingService.generateEmbedding(description)
-
-            // 查找语义相似的工具和关键词
-            const similarKeywords = await this.findSemanticallySimilarKeywords(embedding)
-            similarKeywords.forEach(keyword => keywords.add(keyword))
-
-        } catch (error) {
-            console.warn(`为工具 ${toolName} 生成语义关键词失败:`, error)
-        }
+        // Embeddings functionality has been removed
+        console.log(`跳过为工具 ${toolName} 生成语义关键词`)
     }
 
     /**
-     * 查找语义相似的关键词
+     * 查找语义相似的关键词（已禁用 - embeddings 功能已移除）
      */
     private async findSemanticallySimilarKeywords(embedding: number[]): Promise<string[]> {
-        try {
-            const dbService = getDatabaseService()
-            const client = await dbService.getClient()
-            if (!client) return []
-
-            try {
-                // 使用pgvector查找相似的关键词
-                const result = await client.query(`
-                    SELECT keyword, 1 - (embedding <=> $1) as similarity
-                    FROM keyword_embeddings
-                    WHERE 1 - (embedding <=> $1) > 0.7
-                    ORDER BY similarity DESC
-                    LIMIT 5
-                `, [JSON.stringify(embedding)])
-
-                return result.rows.map(row => row.keyword)
-            } finally {
-                client.release()
-            }
-        } catch (error) {
-            console.warn('语义关键词查找失败:', error)
-            return []
-        }
+        // Embeddings functionality has been removed
+        return []
     }
 
     /**
@@ -877,8 +822,7 @@ export class ToolMetadataService {
             if (keywords.length > 0) {
                 console.log(`LLM为工具 ${toolName} 生成了 ${keywords.length} 个关键词:`, keywords.slice(0, 5).join(', '), '...')
 
-                // 生成embeddings并存储到向量数据库
-                await this.storeKeywordEmbeddings(toolName, keywords)
+                // Note: Embeddings generation skipped as functionality has been removed
 
                 return keywords
             } else {
@@ -979,45 +923,11 @@ export class ToolMetadataService {
     }
 
     /**
-     * 存储关键词embeddings到向量数据库
+     * 存储关键词embeddings到向量数据库（已禁用 - embeddings 功能已移除）
      */
     private async storeKeywordEmbeddings(toolName: string, keywords: string[]): Promise<void> {
-        try {
-            const { getEmbeddingService } = await import('./embedding-service')
-            const embeddingService = getEmbeddingService()
-            await embeddingService.initialize()
-
-            // 为每个关键词生成embedding
-            for (const keyword of keywords) {
-                try {
-                    const embedding = await embeddingService.generateEmbedding(keyword)
-
-                    // 存储到向量数据库
-                    const dbService = getDatabaseService()
-                    const client = await dbService.getClient()
-                    if (client) {
-                        try {
-                            await client.query(`
-                                INSERT INTO tool_keyword_embeddings (tool_name, keyword, embedding, source)
-                                VALUES ($1, $2, $3, $4)
-                                ON CONFLICT (tool_name, keyword) DO UPDATE SET
-                                    embedding = EXCLUDED.embedding,
-                                    source = EXCLUDED.source,
-                                    updated_at = CURRENT_TIMESTAMP
-                            `, [toolName, keyword, JSON.stringify(embedding), 'llm_generated'])
-                        } finally {
-                            client.release()
-                        }
-                    }
-                } catch (error) {
-                    console.warn(`为关键词 "${keyword}" 生成embedding失败:`, error)
-                }
-            }
-
-            console.log(`为工具 ${toolName} 的 ${keywords.length} 个关键词生成并存储了embeddings`)
-        } catch (error) {
-            console.error(`存储关键词embeddings失败:`, error)
-        }
+        // Embeddings functionality has been removed
+        console.log(`跳过为工具 ${toolName} 的 ${keywords.length} 个关键词生成embeddings (功能已禁用)`)
     }
 
     /**
@@ -1398,88 +1308,9 @@ export class ToolMetadataService {
      * 根据用户输入获取工具建议 - 支持向量相似度搜索
      */
     async getToolSuggestions(userInput: string): Promise<ToolKeywordMapping[]> {
-        // 首先尝试向量相似度搜索
-        const vectorSuggestions = await this.getToolSuggestionsWithVector(userInput)
-        if (vectorSuggestions.length > 0) {
-            console.log(`向量搜索为用户输入找到 ${vectorSuggestions.length} 个建议`)
-            return vectorSuggestions
-        }
-
-        // 回退到传统关键词匹配
-        console.log('向量搜索无结果，使用传统关键词匹配')
         return this.getToolSuggestionsWithKeywords(userInput)
     }
 
-    /**
-     * 使用向量相似度获取工具建议
-     */
-    private async getToolSuggestionsWithVector(userInput: string): Promise<ToolKeywordMapping[]> {
-        try {
-            const { getEmbeddingService } = await import('./embedding-service')
-            const embeddingService = getEmbeddingService()
-            await embeddingService.initialize()
-
-            // 生成用户输入的embedding
-            const userEmbedding = await embeddingService.generateEmbedding(userInput)
-
-            const dbService = getDatabaseService()
-            const client = await dbService.getClient()
-            if (!client) return []
-
-            try {
-                // 使用余弦相似度搜索最相似的关键词
-                const result = await client.query(`
-                    SELECT 
-                        tool_name,
-                        keyword,
-                        1 - (embedding <=> $1::vector) as similarity
-                    FROM tool_keyword_embeddings
-                    WHERE 1 - (embedding <=> $1::vector) > 0.7  -- 相似度阈值
-                    ORDER BY similarity DESC
-                    LIMIT 20
-                `, [JSON.stringify(userEmbedding)])
-
-                if (result.rows.length === 0) {
-                    return []
-                }
-
-                // 按工具名称分组并计算综合置信度
-                const toolGroups = new Map<string, { keywords: string[], similarities: number[] }>()
-
-                for (const row of result.rows) {
-                    if (!toolGroups.has(row.tool_name)) {
-                        toolGroups.set(row.tool_name, { keywords: [], similarities: [] })
-                    }
-                    const group = toolGroups.get(row.tool_name)!
-                    group.keywords.push(row.keyword)
-                    group.similarities.push(parseFloat(row.similarity))
-                }
-
-                // 计算每个工具的综合置信度
-                const suggestions: ToolKeywordMapping[] = []
-                for (const [toolName, group] of toolGroups) {
-                    // 使用最高相似度和平均相似度的加权平均
-                    const maxSimilarity = Math.max(...group.similarities)
-                    const avgSimilarity = group.similarities.reduce((a, b) => a + b, 0) / group.similarities.length
-                    const confidence = (maxSimilarity * 0.7 + avgSimilarity * 0.3) * Math.min(1, group.keywords.length / 3)
-
-                    suggestions.push({
-                        toolName,
-                        keywords: group.keywords,
-                        confidence
-                    })
-                }
-
-                return suggestions.sort((a, b) => b.confidence - a.confidence)
-
-            } finally {
-                client.release()
-            }
-        } catch (error) {
-            console.warn('向量相似度搜索失败:', error)
-            return []
-        }
-    }
 
     /**
      * 使用传统关键词匹配获取工具建议
@@ -1718,11 +1549,7 @@ export class ToolMetadataService {
                     WHERE tool_name = $1 AND source = 'llm_generated'
                 `, [toolName])
 
-                // 删除LLM生成的关键词embeddings
-                await client.query(`
-                    DELETE FROM tool_keyword_embeddings 
-                    WHERE tool_name = $1 AND source = 'llm_generated'
-                `, [toolName])
+                // Note: Embeddings cleanup skipped as functionality has been removed
 
                 console.log(`已清除工具 ${toolName} 的LLM生成关键词`)
             } finally {
@@ -1740,7 +1567,6 @@ export class ToolMetadataService {
         totalTools: number
         toolsWithLLMKeywords: number
         totalLLMKeywords: number
-        totalEmbeddings: number
         lastGenerated: Date | null
     }> {
         try {
@@ -1751,7 +1577,6 @@ export class ToolMetadataService {
                     totalTools: 0,
                     toolsWithLLMKeywords: 0,
                     totalLLMKeywords: 0,
-                    totalEmbeddings: 0,
                     lastGenerated: null
                 }
             }
@@ -1776,12 +1601,6 @@ export class ToolMetadataService {
                     WHERE source = 'llm_generated'
                 `)
 
-                // 获取embeddings总数
-                const embeddingsResult = await client.query(`
-                    SELECT COUNT(*) as count 
-                    FROM tool_keyword_embeddings
-                `)
-
                 // 获取最后生成时间
                 const lastGeneratedResult = await client.query(`
                     SELECT MAX(created_at) as last_generated 
@@ -1790,10 +1609,9 @@ export class ToolMetadataService {
                 `)
 
                 return {
-                    totalTools: parseInt(totalToolsResult.rows[0]?.count || '0'),
-                    toolsWithLLMKeywords: parseInt(llmToolsResult.rows[0]?.count || '0'),
-                    totalLLMKeywords: parseInt(llmKeywordsResult.rows[0]?.count || '0'),
-                    totalEmbeddings: parseInt(embeddingsResult.rows[0]?.count || '0'),
+                    totalTools: parseInt(String(totalToolsResult.rows[0]?.count || '0')),
+                    toolsWithLLMKeywords: parseInt(String(llmToolsResult.rows[0]?.count || '0')),
+                    totalLLMKeywords: parseInt(String(llmKeywordsResult.rows[0]?.count || '0')),
                     lastGenerated: lastGeneratedResult.rows[0]?.last_generated || null
                 }
             } finally {
@@ -1805,7 +1623,6 @@ export class ToolMetadataService {
                 totalTools: 0,
                 toolsWithLLMKeywords: 0,
                 totalLLMKeywords: 0,
-                totalEmbeddings: 0,
                 lastGenerated: null
             }
         }

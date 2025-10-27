@@ -1,8 +1,8 @@
 // LLM Service Client - Handles communication with LLM API
 
 import { ChatMessage, ChatResponse, ToolCall, ToolResult } from '@/types'
-import { getConfigLoader } from './config'
-import { DEFAULT_CONFIG, ERROR_CODES, HTTP_STATUS } from '@/types/constants'
+import { DEFAULT_CONFIG, HTTP_STATUS } from '@/types/constants'
+import { getLLMConfigService } from '@/services/llm-config-service'
 
 /**
  * LLM Service interface for chat completions
@@ -41,32 +41,49 @@ export class OpenAICompatibleLLMService implements LLMService {
   }
 
   /**
-   * Initialize the service with configuration
+   * Initialize the service with configuration from PostgreSQL
    */
   async initialize(): Promise<void> {
     try {
-      const configLoader = getConfigLoader()
-      await configLoader.loadConfig()
+      // Get LLM config service
+      const llmConfigService = getLLMConfigService()
       
-      const llmConfig = configLoader.getLLMConfig()
-      this.baseUrl = llmConfig.url
-      this.timeout = llmConfig.timeout || DEFAULT_CONFIG.REQUEST_TIMEOUT
+      // Get active LLM configuration from database
+      const dbConfig = await llmConfigService.getLLMConfigForChat()
       
-      // Build headers from config
-      this.headers = {
-        'Content-Type': 'application/json',
-        ...llmConfig.headers
-      }
-      
-      // Add Authorization header if API key is provided
-      if (llmConfig.apiKey) {
-        this.headers['Authorization'] = `Bearer ${llmConfig.apiKey}`
+      if (dbConfig) {
+        this.baseUrl = dbConfig.url
+        this.timeout = dbConfig.timeout || DEFAULT_CONFIG.REQUEST_TIMEOUT
+        
+        // Build headers from config
+        this.headers = {
+          'Content-Type': 'application/json',
+          ...dbConfig.headers
+        }
+        
+        console.log('LLM Service initialized with database config:', this.baseUrl)
+      } else {
+        console.warn('No active LLM config found in database, using defaults')
+        // Fallback to environment variables or defaults
+        this.baseUrl = process.env.LLM_URL || DEFAULT_CONFIG.LLM_URL
+        this.timeout = DEFAULT_CONFIG.REQUEST_TIMEOUT
+        
+        this.headers = {
+          'Content-Type': 'application/json',
+          ...(process.env.LLM_API_KEY && { 'Authorization': `Bearer ${process.env.LLM_API_KEY}` })
+        }
       }
       
       console.log('LLM Service initialized with endpoint:', this.baseUrl)
     } catch (error) {
       console.error('Failed to initialize LLM service:', error)
       // Continue with default configuration
+      this.baseUrl = process.env.LLM_URL || DEFAULT_CONFIG.LLM_URL
+      this.timeout = DEFAULT_CONFIG.REQUEST_TIMEOUT
+      this.headers = {
+        'Content-Type': 'application/json',
+        ...(process.env.LLM_API_KEY && { 'Authorization': `Bearer ${process.env.LLM_API_KEY}` })
+      }
     }
   }
 
@@ -78,9 +95,14 @@ export class OpenAICompatibleLLMService implements LLMService {
       // Validate messages
       this.validateMessages(messages)
 
-      // Get current configuration for request parameters
-      const configLoader = getConfigLoader()
-      const llmConfig = configLoader.getLLMConfig()
+      // Get current configuration for request parameters from database
+      const llmConfigService = getLLMConfigService()
+      const dbConfig = await llmConfigService.getActiveLLMConfig()
+      
+      const llmConfig = {
+        temperature: dbConfig?.temperature || 0.7,
+        maxTokens: dbConfig?.max_tokens || 2000
+      }
 
       // Prepare request payload
       const requestPayload = {

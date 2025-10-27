@@ -51,18 +51,7 @@ export interface LLMConfig {
   headers?: Record<string, string>
 }
 
-// Embeddings configuration interface
-export interface EmbeddingsConfig {
-  provider: string
-  model: string
-  dimensions: number
-  endpoint: string
-  batchSize: number
-  fallback: {
-    enabled: boolean
-    type: string
-  }
-}
+// Note: EmbeddingsConfig interface removed as embeddings are no longer used
 
 // Application configuration interface
 export interface AppConfig {
@@ -70,7 +59,7 @@ export interface AppConfig {
   mcp: {
     servers: Record<string, MCPServerConfig>
   }
-  embeddings: EmbeddingsConfig
+  // embeddings: EmbeddingsConfig // Removed as embeddings are no longer used
 }
 
 // Error response format for API endpoints

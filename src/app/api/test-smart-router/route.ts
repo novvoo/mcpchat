@@ -2,7 +2,6 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSmartRouter } from '@/services/smart-router'
-import { getMCPIntentRecognizer } from '@/services/mcp-intent-recognizer'
 import { getToolMetadataService } from '@/services/tool-metadata-service'
 
 // 生成动态示例
@@ -124,14 +123,13 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString()
     }
 
-    // 测试意图识别
+    // 测试意图识别 - 已移除，使用工具元数据服务替代
     if (testMode === 'intent' || testMode === 'full') {
-      console.log('Testing intent recognition...')
-      const intentRecognizer = getMCPIntentRecognizer()
-      await intentRecognizer.initialize()
-      
-      const intent = await intentRecognizer.recognizeIntent(message)
-      results.intentRecognition = intent
+      console.log('Intent recognition has been removed, using tool metadata service instead...')
+      results.intentRecognition = {
+        message: 'Intent recognition service has been removed',
+        alternative: 'Use tool metadata service for tool suggestions'
+      }
     }
 
     // 测试工具元数据建议

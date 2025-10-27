@@ -1,34 +1,47 @@
 # MCP Chat Client
 
-An intelligent chat client that integrates MCP (Model Context Protocol) tools with LLM capabilities, featuring semantic tool search powered by PostgreSQL and pgvector.
+An intelligent chat client that integrates MCP (Model Context Protocol) tools with LLM capabilities, featuring advanced intent recognition powered by LangChain.
 
 ## Features
 
 - **MCP Tool Integration**: Connect and use MCP servers and their tools
-- **Smart Routing**: Automatically selects relevant tools based on user queries
-- **Vector Search**: Semantic tool discovery using pgvector for accurate tool matching
-- **LLM Integration**: OpenAI-compatible API support for chat and embeddings
+- **Smart Routing**: Automatically selects relevant tools based on user queries using LangChain
+- **LangChain Intent Recognition**: Advanced text processing and semantic analysis for accurate tool matching
+- **LLM Integration**: OpenAI-compatible API support for chat and text processing
 - **Conversation Management**: Multi-turn conversations with context preservation
-- **Tool Indexing**: Automatic indexing of MCP tools for fast semantic search
+- **Tool Metadata Management**: Automatic indexing of MCP tools with keyword mapping
 
 ## Architecture
 
 ### Core Components
 
-- **Smart Router**: Intelligently routes queries to appropriate tools using vector search
+- **Enhanced Smart Router**: Intelligently routes queries using LangChain-powered intent recognition
+- **LangChain Text Processor**: Advanced text analysis, tokenization, and semantic understanding
 - **MCP Manager**: Manages MCP server connections and tool discovery
-- **Tool Vector Store**: Stores and searches tool embeddings using pgvector
-- **Embedding Service**: Generates embeddings via LLM API
-- **Database Service**: PostgreSQL connection management with pgvector support
+- **Tool Metadata Service**: Stores and manages tool information with keyword mappings
+- **Database Service**: PostgreSQL connection management for tool metadata storage
 
 ### Technology Stack
 
 - **Frontend**: Next.js 15, React 19, TypeScript
 - **Backend**: Next.js API Routes
-- **Database**: PostgreSQL with pgvector extension
-- **Vector Search**: pgvector for semantic similarity search
-- **Embeddings**: OpenAI-compatible embedding API
+- **Database**: PostgreSQL for tool metadata and configuration storage
+- **Intent Recognition**: LangChain for advanced text processing and semantic analysis
+- **LLM Integration**: OpenAI-compatible API for chat and text processing
 - **MCP**: Model Context Protocol for tool integration
+
+### Intent Recognition Evolution
+
+**Previous Architecture (Deprecated):**
+- Vector embeddings for tool matching
+- pgvector for similarity search
+- Embedding service for vector generation
+
+**Current Architecture (LangChain-based):**
+- LangChain text processor for semantic analysis
+- Rule-based intent recognition with semantic context
+- Advanced tokenization and entity recognition
+- No dependency on vector embeddings
 
 ## Prerequisites
 

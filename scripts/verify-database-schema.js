@@ -30,14 +30,12 @@ async function verifyDatabaseSchema() {
     try {
         console.log('✓ 连接数据库成功\n');
 
-        // 需要检查的表
+        // 需要检查的表 (已移除embeddings相关表，现在使用LangChain)
         const requiredTables = [
             'mcp_tools',
-            'keyword_embeddings',
             'tool_keyword_mappings',
             'tool_parameter_mappings',
             'tool_usage_stats',
-            'tool_keyword_embeddings',
             'tool_name_patterns'
         ];
 
@@ -75,8 +73,8 @@ async function verifyDatabaseSchema() {
             console.log();
         }
 
-        // 检查索引
-        console.log('\n检查向量索引...\n');
+        // 检查工具表索引 (保留用于工具匹配的基本索引)
+        console.log('\n检查工具表索引...\n');
         const indexes = await client.query(`
             SELECT 
                 tablename,
@@ -84,8 +82,7 @@ async function verifyDatabaseSchema() {
                 indexdef
             FROM pg_indexes
             WHERE schemaname = 'public'
-            AND indexname LIKE '%embedding%'
-            OR indexname LIKE '%vector%'
+            AND tablename = 'mcp_tools'
         `);
 
         if (indexes.rows.length > 0) {
@@ -93,7 +90,7 @@ async function verifyDatabaseSchema() {
                 console.log(`✓ ${idx.indexname} on ${idx.tablename}`);
             });
         } else {
-            console.log('⚠️  未找到向量索引');
+            console.log('⚠️  未找到工具表索引');
         }
 
         console.log('\n✅ 数据库表结构验证完成！');

@@ -88,7 +88,8 @@ export const CONTENT_TYPES = {
 export const API_ENDPOINTS = {
   CHAT: '/api/chat',
   MCP_TOOLS: '/api/mcp/tools',
-  MCP_EXECUTE: '/api/mcp/execute'
+  MCP_EXECUTE: '/api/mcp/execute',
+  MCP_STATUS: '/api/mcp/status'
 } as const
 
 // Environment variables

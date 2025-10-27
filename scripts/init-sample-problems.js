@@ -8,10 +8,10 @@ async function importDatabaseService() {
   return getDatabaseService
 }
 
-// 动态导入 MCP 服务器管理器
-async function importMCPServerManager() {
-  const { MCPServerManager } = await import('../src/services/mcp-server-manager.ts')
-  return MCPServerManager
+// 导入简化的 MCP 服务器管理器
+function importMCPServerManager() {
+  const { SimpleMCPServerManager } = require('./mcp-server-manager-simple.js')
+  return SimpleMCPServerManager
 }
 
 /**
@@ -19,7 +19,7 @@ async function importMCPServerManager() {
  */
 async function generateSampleProblemsFromMCP() {
   try {
-    const MCPServerManager = await importMCPServerManager()
+    const MCPServerManager = importMCPServerManager()
     const mcpManager = MCPServerManager.getInstance()
     
     // 初始化MCP服务器

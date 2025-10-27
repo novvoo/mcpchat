@@ -1,7 +1,7 @@
 // Smart Router - 智能路由服务，决定是否使用MCP还是LLM
 
 import { ChatMessage, ToolCall, ToolResult } from '@/types'
-import { getMCPIntentRecognizer } from './mcp-intent-recognizer'
+import { getLangChainTextProcessor } from './langchain-text-processor'
 import { getMCPToolsService } from './mcp-tools'
 import { getLLMService } from './llm-service'
 import { getConversationManager } from './conversation'
@@ -40,7 +40,7 @@ export class SmartRouter {
    * 智能处理用户消息 - 架构要求的正确流程
    * 
    * 重要架构原则：绝对不能在LLM请求中包含MCP工具信息
-   * MCP工具选择和执行通过PostgreSQL/pgvector处理，与LLM完全分离
+   * MCP工具选择和执行通过PostgreSQL处理，与LLM完全分离
    * 
    * 正确流程步骤：
    * 1. Smart Router 通过PostgreSQL/pgvector分析用户输入，判断意图
@@ -59,13 +59,15 @@ export class SmartRouter {
       enableLLMFallback?: boolean
       mcpConfidenceThreshold?: number
       maxToolCalls?: number
+      useLangChain?: boolean
     } = {}
   ): Promise<SmartRouterResponse> {
     const {
       enableMCPFirst = true,
       enableLLMFallback = true,
       mcpConfidenceThreshold = 0.4,  // 调整为与新置信度系统匹配
-      maxToolCalls = 5
+      maxToolCalls = 5,
+      useLangChain = true  // 默认启用LangChain增强解析
     } = options
 
     const conversationManager = getConversationManager()
@@ -93,22 +95,40 @@ export class SmartRouter {
       // 第0步：确保MCP系统已初始化
       await this.ensureMCPSystemReady()
 
-      // 第1步：Smart Router 分析用户意图
+      // 第1步：使用LangChain增强解析分析用户意图
       if (enableMCPFirst) {
-        console.log('Step 1: Smart Router analyzing user intent for MCP tools')
+        console.log('Step 1: Smart Router using LangChain enhanced analysis for MCP tools')
 
-        const intentRecognizer = getMCPIntentRecognizer()
-        const intent = await intentRecognizer.recognizeIntent(userMessage)
+        let intent: any = null
 
-        console.log(`Intent recognition result:`, {
-          needsMCP: intent.needsMCP,
-          confidence: intent.confidence,
-          suggestedTool: intent.suggestedTool,
-          reasoning: intent.reasoning
-        })
+        if (useLangChain) {
+          // 使用LangChain增强解析
+          console.log('Using LangChain enhanced intent analysis')
+          const langchainProcessor = getLangChainTextProcessor()
+          await langchainProcessor.initialize()
+          
+          const tokenizedResult = await langchainProcessor.tokenizeText(userMessage)
+          intent = await this.analyzeIntentWithLangChain(tokenizedResult, userMessage)
+          
+          console.log('LangChain enhanced intent analysis result:', {
+            needsMCP: intent.needsMCP,
+            confidence: intent.confidence,
+            suggestedTool: intent.suggestedTool,
+            reasoning: intent.reasoning
+          })
+        } else {
+          // 没有可用的增强解析器，返回默认结果
+          console.log('No enhanced parser available, returning default result')
+          intent = {
+            needsMCP: false,
+            confidence: 0.1,
+            suggestedTool: null,
+            reasoning: 'No enhanced parser available'
+          }
+        }
 
         // 第2步：如果Smart Router识别出需要MCP工具且置信度足够
-        if (intent.needsMCP && intent.confidence >= mcpConfidenceThreshold && intent.suggestedTool) {
+        if (intent && intent.needsMCP && intent.confidence >= mcpConfidenceThreshold && intent.suggestedTool) {
           console.log(`Step 2: Smart Router decided to use MCP tool directly: ${intent.suggestedTool}`)
 
           try {
@@ -125,7 +145,7 @@ export class SmartRouter {
               toolResults: mcpResult.toolResults,
               conversationId: activeConversationId,
               confidence: intent.confidence,
-              reasoning: `Smart Router directly executed ${intent.suggestedTool} tool with ${(intent.confidence * 100).toFixed(1)}% confidence`
+              reasoning: `Smart Router (${useLangChain ? 'LangChain enhanced' : 'traditional'}) executed ${intent.suggestedTool} tool with ${(intent.confidence * 100).toFixed(1)}% confidence`
             }
           } catch (error) {
             console.error(`MCP tool execution failed:`, error)
@@ -137,7 +157,8 @@ export class SmartRouter {
             // 继续到LLM处理
           }
         } else {
-          console.log(`Step 2: Smart Router decided NOT to use MCP tools directly (needsMCP: ${intent.needsMCP}, confidence: ${intent.confidence}, threshold: ${mcpConfidenceThreshold})`)
+          const confidenceInfo = intent ? `confidence: ${intent.confidence}, threshold: ${mcpConfidenceThreshold}` : 'no intent result'
+          console.log(`Step 2: Smart Router decided NOT to use MCP tools directly (needsMCP: ${intent?.needsMCP}, ${confidenceInfo})`)
         }
       }
 
@@ -171,6 +192,151 @@ export class SmartRouter {
       conversationManager.addMessage(activeConversationId, errorMsg)
 
       throw error
+    }
+  }
+
+  /**
+   * 使用LangChain分析结果进行意图识别
+   */
+  private async analyzeIntentWithLangChain(tokenizedResult: any, originalQuestion: string): Promise<{
+    needsMCP: boolean
+    suggestedTool?: string
+    confidence: number
+    parameters?: Record<string, any>
+    reasoning?: string
+    domain?: string
+    complexity?: string
+  }> {
+    const { entities, intent, context } = tokenizedResult
+
+    // 基于LangChain分析结果判断是否需要MCP工具
+    const domain = context.domain
+    const primaryIntent = intent.primary
+    const numberEntities = entities.filter((e: any) => e.type === 'number')
+    const actionEntities = entities.filter((e: any) => e.type === 'action')
+
+    console.log('LangChain analysis details:', {
+      domain,
+      primaryIntent,
+      numberEntities: numberEntities.length,
+      actionEntities: actionEntities.length,
+      entities: entities.map((e: any) => ({ text: e.text, type: e.type }))
+    })
+
+    // 数学计算类型的工具匹配
+    if (domain === '数学' || primaryIntent.includes('计算') || primaryIntent.includes('数学')) {
+      // 24点游戏检测
+      if (numberEntities.length >= 4 && (originalQuestion.includes('24') || originalQuestion.includes('二十四'))) {
+        const numbers = numberEntities.map((e: any) => parseInt(e.text)).filter((n: number) => !isNaN(n)).slice(0, 4)
+        if (numbers.length === 4) {
+          return {
+            needsMCP: true,
+            suggestedTool: 'solve_24_point_game',
+            confidence: 0.9,
+            parameters: { numbers },
+            reasoning: 'LangChain detected 24-point game with 4 numbers',
+            domain,
+            complexity: context.complexity
+          }
+        }
+      }
+
+      // N皇后问题检测
+      if (originalQuestion.includes('皇后') || originalQuestion.includes('queen')) {
+        const nValue = numberEntities.find((e: any) => {
+          const num = parseInt(e.text)
+          return num >= 4 && num <= 20
+        })
+        if (nValue) {
+          return {
+            needsMCP: true,
+            suggestedTool: 'solve_n_queens',
+            confidence: 0.85,
+            parameters: { n: parseInt(nValue.text) },
+            reasoning: 'LangChain detected N-Queens problem',
+            domain,
+            complexity: context.complexity
+          }
+        }
+      }
+
+      // 数独检测
+      if (originalQuestion.includes('数独') || originalQuestion.includes('sudoku')) {
+        return {
+          needsMCP: true,
+          suggestedTool: 'solve_sudoku',
+          confidence: 0.8,
+          parameters: {},
+          reasoning: 'LangChain detected Sudoku puzzle',
+          domain,
+          complexity: context.complexity
+        }
+      }
+
+      // 线性规划检测
+      if (originalQuestion.includes('线性规划') || originalQuestion.includes('优化') || originalQuestion.includes('最大化') || originalQuestion.includes('最小化')) {
+        return {
+          needsMCP: true,
+          suggestedTool: 'solve_lp',
+          confidence: 0.75,
+          parameters: {},
+          reasoning: 'LangChain detected linear programming problem',
+          domain,
+          complexity: context.complexity
+        }
+      }
+    }
+
+    // 编程相关的工具匹配
+    if (domain === '编程' || primaryIntent.includes('代码') || primaryIntent.includes('编程')) {
+      const hasExampleKeywords = originalQuestion.includes('示例') || originalQuestion.includes('例子') || originalQuestion.includes('example')
+      if (hasExampleKeywords) {
+        return {
+          needsMCP: true,
+          suggestedTool: 'run_example',
+          confidence: 0.7,
+          parameters: { example_name: 'basic' },
+          reasoning: 'LangChain detected request for code examples',
+          domain,
+          complexity: context.complexity
+        }
+      }
+    }
+
+    // 系统信息查询
+    if (originalQuestion.includes('系统信息') || originalQuestion.includes('info') || originalQuestion.includes('状态')) {
+      return {
+        needsMCP: true,
+        suggestedTool: 'info',
+        confidence: 0.8,
+        parameters: {},
+        reasoning: 'LangChain detected system information request',
+        domain,
+        complexity: context.complexity
+      }
+    }
+
+    // 如果没有匹配到特定工具，但是是明确的任务请求
+    const hasActionWords = actionEntities.length > 0
+    const isTaskRequest = hasActionWords && (domain !== '信息查询')
+    
+    if (isTaskRequest && intent.confidence > 0.6) {
+      return {
+        needsMCP: false, // 让LLM处理，但提供上下文
+        confidence: intent.confidence * 0.5, // 降低置信度，倾向于LLM处理
+        reasoning: 'LangChain detected task request but no specific tool match',
+        domain,
+        complexity: context.complexity
+      }
+    }
+
+    // 默认情况：信息查询或无明确工具匹配
+    return {
+      needsMCP: false,
+      confidence: 0.2,
+      reasoning: 'LangChain analysis suggests LLM processing',
+      domain,
+      complexity: context.complexity
     }
   }
 
@@ -923,20 +1089,48 @@ export class SmartRouter {
   }
 
   /**
-   * 确保MCP系统已就绪
+   * 确保MCP系统已就绪 - 优化版本，避免重复初始化
    */
   private async ensureMCPSystemReady(): Promise<void> {
-    if (!isMCPSystemReady()) {
-      console.log('MCP系统未就绪，开始初始化...')
+    const initializer = getMCPInitializer()
+    
+    // 首先检查当前状态
+    if (initializer.isReady()) {
+      return // 已经就绪，直接返回
+    }
 
-      const initializer = getMCPInitializer()
-      const status = await initializer.initialize()
-
+    // 检查是否正在初始化中
+    const currentStatus = initializer.getStatus()
+    if (currentStatus.configLoaded || currentStatus.serversConnected || currentStatus.toolsLoaded) {
+      console.log('MCP系统正在初始化中，等待完成...')
+      // 系统正在初始化，等待完成
+      const status = await initializer.initialize(false) // 不强制重新初始化
       if (!status.ready) {
-        throw new Error(`MCP系统初始化失败: ${status.error || '未知错误'}`)
+        console.warn(`MCP系统初始化未完全成功，但继续运行: ${status.error || '部分功能可能不可用'}`)
       }
+      return
+    }
 
-      console.log('MCP系统初始化完成')
+    // 系统确实未初始化，开始初始化
+    console.log('MCP系统未就绪，开始初始化...')
+    try {
+      const status = await initializer.initialize(false) // 不强制重新初始化
+      
+      if (status.ready) {
+        console.log(`MCP系统初始化完成 (${status.details.totalTools} 个工具可用)`)
+      } else {
+        // 即使初始化不完全成功，也不阻塞请求处理
+        console.warn(`MCP系统初始化未完全成功，但继续运行: ${status.error || '部分功能可能不可用'}`)
+        console.warn('详细状态:', {
+          configLoaded: status.configLoaded,
+          serversConnected: status.serversConnected,
+          toolsLoaded: status.toolsLoaded,
+          keywordsMapped: status.keywordsMapped
+        })
+      }
+    } catch (error) {
+      // 初始化失败也不阻塞请求，降级到纯LLM模式
+      console.error('MCP系统初始化失败，降级到纯LLM模式:', error instanceof Error ? error.message : error)
     }
   }
 
