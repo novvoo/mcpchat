@@ -663,7 +663,7 @@ export class EnhancedSmartRouter {
     const pattern1 = /(?:共|总共|一共)?\s*(\d+)\s*只.*?(?:共|总共|一共)?\s*(\d+)\s*(?:只脚|脚)/
     const match1 = input.match(pattern1)
     if (match1) {
-      params.total_animals = parseInt(match1[1])
+      params.total_heads = parseInt(match1[1])
       params.total_legs = parseInt(match1[2])
       return params
     }
@@ -672,7 +672,7 @@ export class EnhancedSmartRouter {
     const pattern2 = /(?:头|个)\s*(\d+).*?脚\s*(\d+)/
     const match2 = input.match(pattern2)
     if (match2) {
-      params.total_animals = parseInt(match2[1])
+      params.total_heads = parseInt(match2[1])
       params.total_legs = parseInt(match2[2])
       return params
     }
@@ -682,14 +682,14 @@ export class EnhancedSmartRouter {
       // 判断哪个是动物数，哪个是脚数（脚数通常比动物数大）
       const [num1, num2] = numbers.slice(0, 2)
       if (num2 > num1 && num2 > num1 * 2) { // 脚数应该大于动物数的2倍
-        params.total_animals = num1
+        params.total_heads = num1
         params.total_legs = num2
       } else if (num1 > num2 && num1 > num2 * 2) {
-        params.total_animals = num2
+        params.total_heads = num2
         params.total_legs = num1
       } else {
         // 默认假设第一个是动物数，第二个是脚数
-        params.total_animals = num1
+        params.total_heads = num1
         params.total_legs = num2
       }
     }
