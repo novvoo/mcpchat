@@ -10,6 +10,16 @@ import { HTTP_STATUS, ERROR_CODES } from '@/types/constants'
  */
 export async function GET(request: NextRequest) {
   try {
+    // 添加调试信息来追踪调用来源
+    const userAgent = request.headers.get('user-agent') || 'Unknown'
+    const referer = request.headers.get('referer') || 'None'
+    const timestamp = new Date().toLocaleTimeString()
+    
+    console.log(`🔍 [${timestamp}] MCP Status API 被调用`)
+    console.log(`   User-Agent: ${userAgent.substring(0, 100)}`)
+    console.log(`   Referer: ${referer}`)
+    console.log(`   URL: ${request.url}`)
+    
     const initializer = getMCPInitializer()
     const status = initializer.getStatus()
     

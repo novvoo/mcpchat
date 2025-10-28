@@ -17,13 +17,19 @@ class MCPStatusManager {
 
   static getInstance(): MCPStatusManager {
     if (!MCPStatusManager.instance) {
+      console.log('🆕 创建新的MCPStatusManager实例')
       MCPStatusManager.instance = new MCPStatusManager()
+    } else {
+      console.log('♻️ 使用现有的MCPStatusManager实例')
     }
     return MCPStatusManager.instance
   }
 
   addListener(callback: (status: MCPStatus | null, isLoading: boolean, error: string | null) => void) {
+    console.log(`📝 添加监听器，当前监听器数量: ${this.listeners.size}`)
     this.listeners.add(callback)
+    console.log(`📝 监听器已添加，新的监听器数量: ${this.listeners.size}`)
+    
     // 立即通知当前状态
     callback(this.status, this.isLoading, this.error)
     
@@ -31,7 +37,10 @@ class MCPStatusManager {
     console.warn('🚫 MCPStatusManager: 自动检查已完全禁用以调试频繁调用问题')
     
     return () => {
+      console.log(`🗑️ 移除监听器，当前监听器数量: ${this.listeners.size}`)
       this.listeners.delete(callback)
+      console.log(`🗑️ 监听器已移除，新的监听器数量: ${this.listeners.size}`)
+      
       // 如果没有监听器了，停止自动检查
       if (this.listeners.size === 0) {
         this.stopAutoCheck()
@@ -220,7 +229,7 @@ export interface UseMCPStatusReturn {
 
 /**
  * Custom hook for managing MCP system status
- * 使用全局状态管理器，避免重复的API调用
+ * 简化版本：只提供手动检查功能，不进行自动轮询
  */
 export const useMCPStatus = (options: {
   onStatusChange?: (status: MCPStatus) => void
@@ -232,36 +241,105 @@ export const useMCPStatus = (options: {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
-  const manager = MCPStatusManager.getInstance()
   const previousReadyRef = useRef<boolean | undefined>(undefined)
 
-  useEffect(() => {
-    const unsubscribe = manager.addListener((newStatus, newIsLoading, newError) => {
-      setStatus(newStatus)
-      setIsLoading(newIsLoading)
-      setError(newError)
+  const checkStatus = useCallback(async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      console.log('🔍 useMCPStatus: 手动检查MCP状态')
+      const response = await mcpApi.getStatus()
       
-      if (newStatus) {
+      if (response.success && response.data) {
+        const apiData = response.data
+        const newStatus: MCPStatus = {
+          ready: apiData.ready || false,
+          configLoaded: apiData.configLoaded || false,
+          serversConnected: apiData.serversConnected || false,
+          toolsLoaded: apiData.toolsLoaded || false,
+          keywordsMapped: apiData.keywordsMapped || false,
+          error: apiData.error,
+          details: {
+            totalServers: apiData.details?.totalServers || 0,
+            connectedServers: apiData.details?.connectedServers || 0,
+            totalTools: apiData.details?.totalTools || 0,
+            keywordMappings: apiData.details?.keywordMappings || 0
+          },
+          systemInfo: apiData.systemInfo
+        }
+        
+        const wasReady = previousReadyRef.current
+        setStatus(newStatus)
         onStatusChange?.(newStatus)
         
         // 检查是否刚刚变为就绪状态
-        if (previousReadyRef.current === false && newStatus.ready) {
+        if (wasReady === false && newStatus.ready) {
           onInitializationComplete?.()
         }
         previousReadyRef.current = newStatus.ready
+        
+        console.log('✅ useMCPStatus: 状态检查完成', { ready: newStatus.ready, tools: newStatus.details.totalTools })
+      } else {
+        throw new Error(response.error?.message || 'Failed to get MCP status')
       }
-    })
 
-    return unsubscribe
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      setError(errorMessage)
+      console.error('❌ useMCPStatus: 状态检查失败:', errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
   }, [onStatusChange, onInitializationComplete])
 
-  const checkStatus = useCallback(async () => {
-    await manager.checkStatus(true) // 强制检查
-  }, [manager])
-
   const reinitialize = useCallback(async (force = false) => {
-    await manager.reinitialize(force)
-  }, [manager])
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      console.log('🔄 useMCPStatus: 重新初始化MCP系统')
+      const response = await mcpApi.reinitialize(force)
+      
+      if (response.success && response.data) {
+        const apiData = response.data
+        const newStatus: MCPStatus = {
+          ready: apiData.ready || false,
+          configLoaded: apiData.configLoaded || false,
+          serversConnected: apiData.serversConnected || false,
+          toolsLoaded: apiData.toolsLoaded || false,
+          keywordsMapped: apiData.keywordsMapped || false,
+          error: apiData.error,
+          details: {
+            totalServers: apiData.details?.totalServers || 0,
+            connectedServers: apiData.details?.connectedServers || 0,
+            totalTools: apiData.details?.totalTools || 0,
+            keywordMappings: apiData.details?.keywordMappings || 0
+          },
+          systemInfo: apiData.systemInfo
+        }
+        
+        setStatus(newStatus)
+        onStatusChange?.(newStatus)
+        console.log('✅ useMCPStatus: 重新初始化完成')
+      } else {
+        throw new Error(response.error?.message || 'Failed to reinitialize MCP system')
+      }
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      setError(errorMessage)
+      console.error('❌ useMCPStatus: 重新初始化失败:', errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [onStatusChange])
+
+  // 组件挂载时执行一次初始检查
+  useEffect(() => {
+    console.log('🚀 useMCPStatus: 组件挂载，执行初始状态检查')
+    checkStatus()
+  }, []) // 空依赖数组，只在挂载时执行一次
 
   return {
     status,

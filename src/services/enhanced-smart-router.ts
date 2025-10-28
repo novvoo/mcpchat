@@ -566,12 +566,34 @@ export class EnhancedSmartRouter {
 
   // 复用原有的格式化方法
   private async formatMCPResult(toolName: string, result: any, params: Record<string, any>): Promise<string> {
+    // 提取实际的结果数据
+    let actualResult = result
+    
+    // 处理MCP工具返回的复杂结构
+    if (result && result.content && Array.isArray(result.content)) {
+      // 尝试从content数组中提取JSON
+      for (const item of result.content) {
+        if (item.type === 'text' && item.text) {
+          try {
+            const parsed = JSON.parse(item.text)
+            if (parsed && typeof parsed === 'object') {
+              actualResult = parsed
+              break
+            }
+          } catch (e) {
+            // 如果不是JSON，继续使用原始文本
+            actualResult = item.text
+          }
+        }
+      }
+    }
+    
     // 根据工具类型提供智能的文本描述
     let description = ''
     
     switch (toolName) {
       case 'solve_24_point_game':
-        if (result.success && result.expression) {
+        if (actualResult.success && actualResult.expression) {
           description = `我来帮您解决这个24点游戏问题。需要用${params.numbers?.join(', ')}这四个数字通过加减乘除运算得到24。\n\n让我尝试不同的组合...`
         } else {
           description = `我尝试解决24点游戏问题，但没有找到解决方案。`
@@ -579,7 +601,7 @@ export class EnhancedSmartRouter {
         break
         
       case 'solve_n_queens':
-        if (result.success && result.solution) {
+        if (actualResult.success && actualResult.solution) {
           const n = params.n || 8
           description = `我来为您解决${n}皇后问题。这是一个经典的回溯算法问题，需要在${n}×${n}的棋盘上放置${n}个皇后，使得它们互不攻击。`
         } else {
@@ -594,12 +616,12 @@ export class EnhancedSmartRouter {
     // 构建包含描述、工具执行状态和JSON结果的混合内容
     let response = description + '\n\n'
     response += `✅ **${toolName} 执行成功**\n\n`
-    response += JSON.stringify(result, null, 2)
+    response += JSON.stringify(actualResult, null, 2)
     
     // 根据结果添加解释
-    if (toolName === 'solve_24_point_game' && result.success && result.expression) {
-      response += `\n\n找到解决方案了！表达式 ${result.expression} = 24 就是答案。`
-    } else if (toolName === 'solve_n_queens' && result.success && result.solution) {
+    if (toolName === 'solve_24_point_game' && actualResult.success && actualResult.expression) {
+      response += `\n\n找到解决方案了！表达式 ${actualResult.expression} = 24 就是答案。`
+    } else if (toolName === 'solve_n_queens' && actualResult.success && actualResult.solution) {
       response += `\n\n这个解决方案表示每一行皇后的列位置，每个皇后都不会攻击到其他皇后，满足N皇后问题的约束条件。`
     }
 
