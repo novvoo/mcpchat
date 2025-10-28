@@ -30,23 +30,17 @@ An intelligent chat client that integrates MCP (Model Context Protocol) tools wi
 - **LLM Integration**: OpenAI-compatible API for chat and text processing
 - **MCP**: Model Context Protocol for tool integration
 
-### Intent Recognition Evolution
-
-**Previous Architecture (Deprecated):**
-- Vector embeddings for tool matching
-- pgvector for similarity search
-- Embedding service for vector generation
+### Intent Recognition
 
 **Current Architecture (LangChain-based):**
 - LangChain text processor for semantic analysis
 - Rule-based intent recognition with semantic context
 - Advanced tokenization and entity recognition
-- No dependency on vector embeddings
 
 ## Prerequisites
 
 - Node.js 18+
-- PostgreSQL 12+ with pgvector extension
+- PostgreSQL 12+
 - OpenAI-compatible LLM API endpoint
 
 ## Installation
@@ -62,14 +56,13 @@ cd mcpchat
 npm install
 ```
 
-3. Install PostgreSQL and pgvector:
+3. Install PostgreSQL:
 ```bash
 # macOS
-brew install postgresql pgvector
+brew install postgresql
 
 # Ubuntu/Debian
 sudo apt-get install postgresql postgresql-contrib
-# Install pgvector from source or package
 ```
 
 4. Configure LLM settings:
@@ -110,11 +103,6 @@ Edit `config/database.json`:
       "min": 2,
       "max": 10
     }
-  },
-  "pgvector": {
-    "enabled": true,
-    "similarityThreshold": 0.7,
-    "maxResults": 5
   }
 }
 ```
@@ -135,28 +123,46 @@ Edit `config/database.json`:
 
 The application will automatically:
 1. Create the `mcp_tools` database if it doesn't exist
-2. Enable the pgvector extension
-3. Create the necessary tables and indexes
-4. Index MCP tools on startup
+2. Create the necessary tables and indexes
+3. Index MCP tools on startup
 
 Manual setup (optional):
 ```sql
 CREATE DATABASE mcp_tools;
-\c mcp_tools
-CREATE EXTENSION vector;
 ```
 
 ## Running the Application
 
-Development mode:
+Development mode (with automatic initialization):
 ```bash
 npm run dev
 ```
 
-Production build:
+The application will automatically:
+- Check and create the database if needed
+- Initialize all required tables
+- Sync configuration files to database
+- Verify system integrity
+
+For manual database initialization:
 ```bash
-npm run build
-npm start
+npm run db:init
+```
+
+Production deployment:
+```bash
+# Option 1: Full production setup (recommended)
+npx tsc --noEmit #check error
+npm run start:prod
+
+# Option 2: Manual steps
+npx tsc --noEmit #check error
+npm run db:init    # Initialize database
+npm run build      # Build the application
+npm start          # Start production server
+
+# Option 3: With initialization
+npm run start:init # Initialize database and start
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
@@ -174,10 +180,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
   - `ssl`: Enable SSL connection
   - `pool`: Connection pool settings
 
-- **pgvector**: Vector search settings
-  - `enabled`: Enable/disable vector search
-  - `similarityThreshold`: Minimum similarity score (0-1)
-  - `maxResults`: Maximum search results
+
 
 ### LLM Configuration (`config/llm.json`)
 
@@ -192,30 +195,7 @@ Configure your LLM service settings:
 
 **Note**: Environment variables `LLM_URL` and `LLM_API_KEY` are still supported as fallbacks if the config file is not available.
 
-### Embeddings Configuration (`config/embeddings.json`)
 
-Configure the embeddings service for text similarity and tool routing:
-
-```json
-{
-  "provider": "openai",
-  "model": "text-embedding-ada-002",
-  "dimensions": 1536,
-  "endpoint": "/embeddings",
-  "batchSize": 100,
-  "fallback": {
-    "enabled": true,
-    "type": "mock"
-  }
-}
-```
-
-- `provider`: Embedding service provider (currently supports "openai")
-- `model`: Embedding model to use
-- `dimensions`: Vector dimensions for embeddings
-- `endpoint`: API endpoint for embeddings
-- `batchSize`: Maximum number of texts to process in one batch
-- `fallback`: Fallback configuration when the embedding service is unavailable
 
 ### MCP Configuration (`config/mcp.json`)
 
@@ -264,12 +244,10 @@ See [MCP documentation](https://modelcontextprotocol.io) for details.
 ## How It Works
 
 1. **Tool Discovery**: MCP tools are loaded from configured servers
-2. **Embedding Generation**: Tool descriptions are converted to embeddings using the LLM API
-3. **Vector Storage**: Embeddings are stored in PostgreSQL with pgvector
-4. **Query Processing**: User queries are embedded and matched against tool embeddings
-5. **Tool Selection**: Most relevant tools are selected based on semantic similarity
-6. **Execution**: Selected tools are executed and results returned to the LLM
-7. **Response Generation**: LLM generates a natural language response
+2. **Query Processing**: User queries are analyzed using LangChain text processing
+3. **Tool Selection**: Most relevant tools are selected based on semantic analysis
+4. **Execution**: Selected tools are executed and results returned to the LLM
+5. **Response Generation**: LLM generates a natural language response
 
 ## API Endpoints
 
@@ -317,7 +295,7 @@ curl -X POST http://localhost:3000/api/test-mcp \
 
 ## Development
 
-Run pgvector
+Run PostgreSQL
 
 docker-compose up -d 
 ```yaml
@@ -325,7 +303,7 @@ docker-compose up -d
 version: '3'
 services:
   postgres:
-    image: pgvector/pgvector:pg18
+    image: postgres:16
     container_name: postgres
     restart: always
     environment:
@@ -363,12 +341,6 @@ npm run lint
 ### Database Connection Issues
 - Ensure PostgreSQL is running
 - Verify credentials in `config/database.json`
-- Check if pgvector extension is installed
-
-### Vector Search Not Working
-- Verify `pgvector.enabled` is `true` in config
-- Check if tools are indexed: `GET /api/tools/index`
-- Ensure embedding service is initialized
 
 ### MCP Tools Not Loading
 - Verify MCP server configuration in `config/mcp.json`

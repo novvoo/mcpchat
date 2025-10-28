@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/Button'
 
 interface LLMKeywordStats {
   totalTools: number
   toolsWithLLMKeywords: number
   totalLLMKeywords: number
-  totalEmbeddings: number
+
   lastGenerated: string | null
 }
 
@@ -112,8 +112,8 @@ export default function LLMKeywordsPage() {
               <div className="text-sm text-gray-600">LLM关键词总数</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-orange-600">{stats.totalEmbeddings}</div>
-              <div className="text-sm text-gray-600">向量嵌入总数</div>
+              <div className="text-2xl font-bold text-orange-600">0</div>
+              <div className="text-sm text-gray-600">已弃用功能</div>
             </div>
             <div className="text-center">
               <div className="text-sm font-medium text-gray-800">

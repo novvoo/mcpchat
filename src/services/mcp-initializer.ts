@@ -62,6 +62,25 @@ export class MCPInitializer {
    * 执行完整的MCP初始化流程
    */
   async initialize(force: boolean = false): Promise<MCPInitializationStatus> {
+    // 尝试从持久化存储加载状态
+    if (!force) {
+      try {
+        const { getMCPStatusPersistence } = await import('../utils/mcp-status-persistence')
+        const persistence = getMCPStatusPersistence()
+        
+        if (persistence.hasValidStatus()) {
+          const persistedStatus = await persistence.loadStatus()
+          if (persistedStatus && persistedStatus.ready) {
+            console.log('从持久化存储加载MCP状态成功，系统已就绪')
+            this.initializationStatus = persistedStatus
+            return this.getStatus()
+          }
+        }
+      } catch (error) {
+        console.warn('加载持久化MCP状态失败，继续正常初始化:', error)
+      }
+    }
+
     // 如果已经就绪且不强制重新初始化，直接返回状态
     if (this.initializationStatus.ready && !force) {
       console.log('MCP系统已就绪，跳过初始化')
@@ -86,6 +105,18 @@ export class MCPInitializer {
 
     try {
       const result = await this.initializing
+      
+      // 保存状态到持久化存储
+      if (result.ready) {
+        try {
+          const { getMCPStatusPersistence } = await import('../utils/mcp-status-persistence')
+          const persistence = getMCPStatusPersistence()
+          await persistence.saveStatus(result)
+        } catch (error) {
+          console.warn('保存MCP状态到持久化存储失败:', error)
+        }
+      }
+      
       return result
     } catch (error) {
       // 初始化失败时清除状态
@@ -242,7 +273,7 @@ export class MCPInitializer {
       }
 
       // 检查数据库是否可用
-      if (!dbService.isVectorSearchEnabled()) {
+      if (!dbService.isInitialized()) {
         console.log('数据库不可用，跳过MCP配置同步')
         return
       }
@@ -356,30 +387,30 @@ export class MCPInitializer {
         throw new Error('没有可用的MCP工具')
       }
 
-      // 自动索引工具到向量数据库
-      await this.indexToolsToVectorStore(tools)
+      // 自动索引工具到数据库
+      await this.indexToolsToStore(tools)
     } catch (error) {
       throw new Error(`工具信息加载失败: ${error instanceof Error ? error.message : '未知错误'}`)
     }
   }
 
   /**
-   * 索引工具到向量数据库（用于工具匹配）
+   * 索引工具到数据库（用于工具匹配）
    */
-  private async indexToolsToVectorStore(tools: Tool[]): Promise<void> {
+  private async indexToolsToStore(tools: Tool[]): Promise<void> {
     try {
-      console.log('开始索引工具到向量数据库（用于工具匹配）...')
+      console.log('开始索引工具到数据库（用于工具匹配）...')
 
-      // 使用 ToolVectorStore 来索引工具
-      const { getToolVectorStore } = await import('./tool-vector-store')
-      const vectorStore = getToolVectorStore()
+      // 使用 ToolStore 来索引工具
+      const { getToolStore } = await import('./tool-store')
+      const toolStore = getToolStore()
 
       // 触发后台索引（不阻塞初始化流程）
-      this.indexToolsInBackground(tools, vectorStore).catch(error => {
+      this.indexToolsInBackground(tools, toolStore).catch(error => {
         console.warn('工具索引失败（不影响系统运行）:', error)
       })
 
-      console.log('工具向量索引已在后台启动')
+      console.log('工具索引已在后台启动')
     } catch (error) {
       console.warn('无法启动工具索引（不影响系统运行）:', error)
     }
@@ -388,9 +419,9 @@ export class MCPInitializer {
   /**
    * 后台索引工具
    */
-  private async indexToolsInBackground(tools: Tool[], vectorStore: any): Promise<void> {
+  private async indexToolsInBackground(tools: Tool[], toolStore: any): Promise<void> {
     try {
-      await vectorStore.initialize()
+      await toolStore.initialize()
 
       // 获取MCP管理器来确定每个工具的服务器名称
       const mcpManager = getMCPManager()
@@ -415,16 +446,16 @@ export class MCPInitializer {
             }
           }
 
-          // 索引工具（不生成embedding，只存储基本信息）
-          await vectorStore.indexTool(tool, serverName)
+          // 索引工具
+          await toolStore.indexTool(tool, serverName)
 
-          console.log(`工具 ${tool.name} 已索引到向量存储 (服务器: ${serverName})`)
+          console.log(`工具 ${tool.name} 已索引到数据库 (服务器: ${serverName})`)
         } catch (toolError) {
           console.warn(`索引工具 ${tool.name} 失败:`, toolError)
         }
       }
 
-      console.log(`完成索引 ${tools.length} 个工具到向量存储`)
+      console.log(`完成索引 ${tools.length} 个工具到数据库`)
     } catch (error) {
       console.error('后台工具索引失败:', error)
       throw error

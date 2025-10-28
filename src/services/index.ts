@@ -18,6 +18,11 @@ export * from './conversation'
 export * from './tool-orchestrator'
 export * from './tool-detector'
 
+// Router services
+export * from './smart-router'
+export * from './enhanced-smart-router'
+export * from './intelligent-router-service'
+
 // API client services
 export * from './api-client'
 
@@ -31,4 +36,7 @@ export { getLLMService, getClientLLMService, initializeLLMService } from './llm-
 export { getConversationManager, createNewConversation, addMessageToCurrentConversation } from './conversation'
 export { getToolOrchestrator, processMessageWithTools } from './tool-orchestrator'
 export { getToolDetector, analyzeMessageForTools, shouldSuggestTools } from './tool-detector'
+export { getSmartRouter, processMessageSmart } from './smart-router'
+export { getEnhancedSmartRouter } from './enhanced-smart-router'
+export { getIntelligentRouterService } from './intelligent-router-service'
 export { apiClient, chatApi, mcpApi, loadingStateManager, ApiClient, LoadingStateManager } from './api-client'

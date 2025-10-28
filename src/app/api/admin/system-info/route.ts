@@ -1,14 +1,42 @@
 import { NextResponse } from 'next/server'
 import { getDatabaseService } from '@/services/database'
 
+interface TableRow {
+  table_name: string
+}
+
+
+
+interface CountRow {
+  count: string
+}
+
+interface ActivityRow {
+  total: string
+  idle: string
+  active: string
+}
+
+interface CountRow {
+  count: string
+}
+
+interface ActivityRow {
+  total: string
+  idle: string
+  active: string
+}
+
+
+
 export async function GET() {
   try {
     // 获取数据库信息
     const databaseInfo = await getDatabaseInfo()
-    
+
     // 获取服务状态
     const servicesInfo = await getServicesInfo()
-    
+
     // 获取性能信息
     const performanceInfo = await getPerformanceInfo()
 
@@ -31,10 +59,10 @@ async function getDatabaseInfo() {
   try {
     const db = getDatabaseService()
     await db.initialize()
-    
+
     // 检查数据库连接
     await db.query('SELECT 1')
-    
+
     // 获取表列表
     const tablesResult = await db.query(`
       SELECT table_name 
@@ -42,21 +70,10 @@ async function getDatabaseInfo() {
       WHERE table_schema = 'public'
       ORDER BY table_name
     `)
-    
-    const tables = tablesResult.rows.map(row => row.table_name)
-    
-    // 检查pgvector扩展
-    let vectorSearch = false
-    try {
-      const vectorResult = await db.query(`
-        SELECT EXISTS(
-          SELECT 1 FROM pg_extension WHERE extname = 'vector'
-        ) as has_vector
-      `)
-      vectorSearch = vectorResult.rows[0]?.has_vector || false
-    } catch (error) {
-      console.warn('Could not check vector extension:', error)
-    }
+
+    const tables = tablesResult.rows.map((row: TableRow) => row.table_name)
+
+
 
     // 获取连接池信息（如果可用）
     let connectionPool = null
@@ -69,9 +86,9 @@ async function getDatabaseInfo() {
         FROM pg_stat_activity 
         WHERE datname = current_database()
       `)
-      
+
       if (poolResult.rows.length > 0) {
-        const row = poolResult.rows[0]
+        const row = poolResult.rows[0] as ActivityRow
         connectionPool = {
           total: parseInt(row.total),
           idle: parseInt(row.idle),
@@ -85,7 +102,6 @@ async function getDatabaseInfo() {
     return {
       connected: true,
       tables,
-      vectorSearch,
       connectionPool
     }
   } catch (error) {
@@ -93,7 +109,6 @@ async function getDatabaseInfo() {
     return {
       connected: false,
       tables: [],
-      vectorSearch: false,
       connectionPool: null
     }
   }
@@ -103,12 +118,12 @@ async function getServicesInfo() {
   try {
     const db = getDatabaseService()
     await db.initialize()
-    
+
     // 检查LLM配置
     let llmService = false
     try {
       const llmResult = await db.query('SELECT COUNT(*) as count FROM llm_configs WHERE is_active = true')
-      llmService = parseInt(llmResult.rows[0]?.count || '0') > 0
+      llmService = parseInt((llmResult.rows[0] as CountRow)?.count || '0') > 0
     } catch (error) {
       console.warn('Could not check LLM service:', error)
     }
@@ -117,47 +132,20 @@ async function getServicesInfo() {
     let mcpService = false
     try {
       const mcpResult = await db.query('SELECT COUNT(*) as count FROM mcp_configs WHERE disabled = false')
-      mcpService = parseInt(mcpResult.rows[0]?.count || '0') > 0
+      mcpService = parseInt((mcpResult.rows[0] as CountRow)?.count || '0') > 0
     } catch (error) {
       console.warn('Could not check MCP service:', error)
     }
 
-    // 检查嵌入服务
-    let embeddingService = false
-    try {
-      const embeddingResult = await db.query('SELECT COUNT(*) as count FROM tool_embeddings LIMIT 1')
-      embeddingService = parseInt(embeddingResult.rows[0]?.count || '0') >= 0
-    } catch (error) {
-      console.warn('Could not check embedding service:', error)
-    }
-
-    // 检查向量存储
-    let vectorStoreService = false
-    try {
-      const vectorResult = await db.query(`
-        SELECT EXISTS(
-          SELECT 1 FROM information_schema.tables 
-          WHERE table_name = 'tool_embeddings'
-        ) as has_table
-      `)
-      vectorStoreService = vectorResult.rows[0]?.has_table || false
-    } catch (error) {
-      console.warn('Could not check vector store:', error)
-    }
-
     return {
       llm: llmService,
-      mcp: mcpService,
-      embedding: embeddingService,
-      vectorStore: vectorStoreService
+      mcp: mcpService
     }
   } catch (error) {
     console.error('Services info error:', error)
     return {
       llm: false,
-      mcp: false,
-      embedding: false,
-      vectorStore: false
+      mcp: false
     }
   }
 }
@@ -166,13 +154,13 @@ async function getPerformanceInfo() {
   try {
     const db = getDatabaseService()
     await db.initialize()
-    
+
     // 计算运行时间（简单实现）
     const startTime = process.uptime()
-    
+
     // 获取内存使用情况
     const memoryUsage = process.memoryUsage()
-    
+
     // 简单的响应时间测试
     const startResponseTime = Date.now()
     await db.query('SELECT 1')

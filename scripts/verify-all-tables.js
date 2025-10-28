@@ -36,7 +36,7 @@ async function verifyAllTables() {
             'tool_keyword_mappings': ['id', 'tool_name', 'keyword', 'confidence', 'source'],
             'tool_parameter_mappings': ['id', 'tool_name', 'user_input', 'mcp_parameter'],
             'tool_usage_stats': ['id', 'tool_name', 'user_input', 'success'],
-            'tool_name_patterns': ['id', 'pattern', 'keywords', 'examples', 'updated_at'],
+            'tool_name_patterns': ['id', 'pattern', 'keywords', 'confidence', 'usage_count', 'updated_at'],
             'keyword_generation_log': ['id', 'tool_name', 'generated_keywords', 'generation_method'],
             'user_input_patterns': ['id', 'input_pattern', 'matched_tools', 'total_attempts']
         };
@@ -78,7 +78,7 @@ async function verifyAllTables() {
         }
 
         console.log('\n' + '='.repeat(60));
-        
+
         if (allValid) {
             console.log('✅ 所有表和列都已正确配置！');
             console.log('\n💡 系统应该可以正常启动了');

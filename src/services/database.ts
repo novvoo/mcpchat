@@ -18,33 +18,9 @@ export interface DatabaseConfig {
     }
 }
 
-export interface PgVectorConfig {
-    enabled: boolean
-    similarityThreshold: number
-    maxResults: number
-}
 
-export interface EmbeddingsConfigRecord {
-    id: number
-    provider: string
-    model: string
-    dimensions: number
-    endpoint: string
-    api_key_configured: boolean
-    base_url: string | null
-    batch_size: number
-    is_available: boolean
-    last_checked: Date | null
-    last_success: Date | null
-    last_failure: Date | null
-    failure_count: number
-    success_count: number
-    fallback_enabled: boolean
-    fallback_type: string
-    metadata: any
-    created_at: Date
-    updated_at: Date
-}
+
+
 
 /**
  * Database Service - Manages PostgreSQL connections
@@ -53,7 +29,7 @@ export class DatabaseService {
     private static instance: DatabaseService
     private pool: Pool | null = null
     private config: DatabaseConfig | null = null
-    private pgvectorConfig: PgVectorConfig | null = null
+
     private initialized: boolean = false
     private initializing: Promise<void> | null = null
 
@@ -100,18 +76,12 @@ export class DatabaseService {
             const configPath = path.join(process.cwd(), 'config', 'database.json')
 
             if (!fs.existsSync(configPath)) {
-                console.warn('Database config not found, vector search will be disabled')
+                console.warn('Database config not found')
                 return
             }
 
             const configData = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
             this.config = configData.postgresql
-            this.pgvectorConfig = configData.pgvector
-
-            if (!this.pgvectorConfig?.enabled) {
-                console.log('pgvector is disabled in config')
-                return
-            }
 
             if (!this.config) {
                 console.warn('Database config is missing')
@@ -140,36 +110,12 @@ export class DatabaseService {
 
             console.log('Database connection established successfully')
 
-            // Initialize schema (this will create the pgvector extension)
+            // Initialize schema
             await this.initializeSchema()
-
-            // Register pgvector types after extension is created (only if enabled)
-            if (this.pgvectorConfig?.enabled) {
-                try {
-                    // 使用正确的方式注册 pgvector 类型
-                    const client = await this.pool.connect()
-                    try {
-                        await client.query('SELECT 1') // 确保连接正常
-                        // pgvector 类型会在使用时自动处理，不需要手动注册
-                        console.log('pgvector extension is ready')
-                    } finally {
-                        client.release()
-                    }
-                } catch (error) {
-                    const errorMessage = error instanceof Error ? error.message : String(error)
-                    console.warn('Failed to verify pgvector setup:', errorMessage)
-                    console.warn('Vector search will be disabled')
-                    this.pgvectorConfig = {
-                        enabled: false,
-                        similarityThreshold: this.pgvectorConfig?.similarityThreshold ?? 0.7,
-                        maxResults: this.pgvectorConfig?.maxResults ?? 5
-                    }
-                }
-            }
         } catch (error) {
             console.error('Failed to initialize database:', error)
             this.pool = null
-            // Don't throw - allow system to work without vector search
+            // Don't throw - allow system to work without database
         }
     }
 
@@ -224,29 +170,18 @@ export class DatabaseService {
     }
 
     /**
-     * Initialize database schema for vector search
+     * Initialize database schema
      */
     private async initializeSchema(): Promise<void> {
         if (!this.pool) return
 
         const client = await this.pool.connect()
         try {
-            // Check if pgvector extension is available
-            const extensionCheck = await client.query(`
-                SELECT 1 FROM pg_available_extensions WHERE name = 'vector'
-            `)
+            // Database schema initialization
 
-            if (extensionCheck.rows.length === 0) {
-                console.warn('pgvector extension is not available in this PostgreSQL installation')
-                console.warn('Vector search will be disabled. To enable it, install pgvector extension.')
-                return
-            }
 
-            // Enable pgvector extension
-            await client.query('CREATE EXTENSION IF NOT EXISTS vector')
-            console.log('pgvector extension enabled successfully')
 
-            // Create tools table with vector embeddings
+            // Create tools table
             await client.query(`
         CREATE TABLE IF NOT EXISTS mcp_tools (
           id SERIAL PRIMARY KEY,
@@ -254,7 +189,6 @@ export class DatabaseService {
           description TEXT NOT NULL,
           input_schema JSONB,
           server_name VARCHAR(255),
-          embedding vector(1536),
           keywords TEXT[] DEFAULT '{}',
           parameter_mappings JSONB,
           valid_parameters TEXT[] DEFAULT '{}',
@@ -266,7 +200,7 @@ export class DatabaseService {
         )
       `)
 
-            // Note: keyword_embeddings table creation removed as embeddings are no longer used
+
 
             // Create tool_keyword_mappings table
             await client.query(`
@@ -311,7 +245,7 @@ export class DatabaseService {
         )
       `)
 
-            // Note: tool_keyword_embeddings table creation removed as embeddings are no longer used
+
 
             // Create tool_name_patterns table
             await client.query(`
@@ -373,12 +307,12 @@ export class DatabaseService {
         )
       `)
 
-            // Create indexes for tool vector similarity search (for tool matching)
+            // Create indexes for tool search
             await client.query(`
-        CREATE INDEX IF NOT EXISTS mcp_tools_embedding_idx 
-        ON mcp_tools 
-        USING ivfflat (embedding vector_cosine_ops)
-        WITH (lists = 100)
+        CREATE INDEX IF NOT EXISTS mcp_tools_name_idx ON mcp_tools (name)
+      `)
+            await client.query(`
+        CREATE INDEX IF NOT EXISTS mcp_tools_server_idx ON mcp_tools (server_name)
       `)
 
             // Create other indexes
@@ -427,27 +361,98 @@ export class DatabaseService {
         ON tool_metadata (category)
       `)
 
-            // 注意：Embeddings相关功能已弃用，现在使用LangChain进行意图识别
-            // 保留embeddings_config表结构以避免破坏现有数据，但不再主动使用
-            await this.initializeEmbeddingsConfigTable()
+            // Create MCP servers configuration table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS mcp_configs (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    display_name TEXT,
+                    transport TEXT NOT NULL,
+                    url TEXT,
+                    command TEXT,
+                    args TEXT,
+                    env TEXT,
+                    disabled BOOLEAN DEFAULT FALSE,
+                    metadata JSONB,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `)
+
+            // Create MCP servers table (alias for compatibility)
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS mcp_servers (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    display_name TEXT,
+                    transport TEXT NOT NULL,
+                    url TEXT,
+                    command TEXT,
+                    args TEXT,
+                    env TEXT,
+                    disabled BOOLEAN DEFAULT FALSE,
+                    metadata JSONB,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `)
+
+            // Create LLM configuration table
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS llm_configs (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL UNIQUE,
+                    provider VARCHAR(100) NOT NULL,
+                    model VARCHAR(255) NOT NULL,
+                    base_url TEXT NOT NULL,
+                    api_key_configured BOOLEAN DEFAULT false,
+                    timeout INTEGER DEFAULT 30000,
+                    max_tokens INTEGER DEFAULT 2000,
+                    temperature FLOAT DEFAULT 0.7,
+                    headers JSONB DEFAULT '{}',
+                    is_active BOOLEAN DEFAULT true,
+                    is_available BOOLEAN DEFAULT false,
+                    last_checked TIMESTAMP,
+                    last_success TIMESTAMP,
+                    last_failure TIMESTAMP,
+                    failure_count INTEGER DEFAULT 0,
+                    success_count INTEGER DEFAULT 0,
+                    metadata JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `)
+
+            // Create indexes for MCP and LLM configs
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS mcp_configs_name_idx ON mcp_configs (name)
+            `)
             
-            console.log('⚠️  Embeddings功能已弃用，现在使用LangChain进行意图识别')
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS mcp_servers_name_idx ON mcp_servers (name)
+            `)
+            
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS llm_configs_name_idx ON llm_configs (name)
+            `)
+            
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS llm_configs_provider_idx ON llm_configs (provider)
+            `)
+            
+            await client.query(`
+                CREATE INDEX IF NOT EXISTS llm_configs_active_idx ON llm_configs (is_active)
+            `)
+
+            console.log('现在使用LangChain进行意图识别')
             console.log('如需配置LangChain，请设置环境变量 OPENAI_API_KEY 和 OPENAI_BASE_URL')
 
             console.log('Database schema initialized successfully')
         } catch (error) {
             console.error('Failed to initialize schema:', error)
-            // If it's a pgvector-related error, disable vector search gracefully
+            // Log error but continue
             const errorMessage = error instanceof Error ? error.message : String(error)
-            if (errorMessage.includes('vector') || errorMessage.includes('extension')) {
-                console.warn('pgvector extension could not be enabled. Vector search will be disabled.')
-                this.pgvectorConfig = {
-                    enabled: false,
-                    similarityThreshold: this.pgvectorConfig?.similarityThreshold ?? 0.7,
-                    maxResults: this.pgvectorConfig?.maxResults ?? 5
-                }
-                return
-            }
+            console.warn('Schema initialization had issues:', errorMessage)
             throw error
         } finally {
             client.release()
@@ -479,370 +484,11 @@ export class DatabaseService {
         return this.initialized
     }
 
-    /**
-     * Check if pgvector is available
-     */
-    isVectorSearchEnabled(): boolean {
-        return !!(this.pool && this.pgvectorConfig?.enabled)
-    }
 
-    /**
-     * Get pgvector configuration
-     */
-    getVectorConfig(): PgVectorConfig | null {
-        return this.pgvectorConfig
-    }
 
-    /**
-     * Initialize embeddings_config table - 已弃用但保留表结构
-     * 
-     * @deprecated 现在使用LangChain进行意图识别，不再需要embeddings配置
-     * 保留此表仅为向后兼容，避免破坏现有数据
-     */
-    private async initializeEmbeddingsConfigTable(): Promise<void> {
-        if (!this.pool) return
 
-        const client = await this.pool.connect()
-        try {
-            // 保留表结构但标记为已弃用
-            await client.query(`
-                CREATE TABLE IF NOT EXISTS embeddings_config (
-                    id SERIAL PRIMARY KEY,
-                    provider VARCHAR(100) NOT NULL,
-                    model VARCHAR(255) NOT NULL,
-                    dimensions INTEGER NOT NULL,
-                    endpoint VARCHAR(255) NOT NULL,
-                    api_key_configured BOOLEAN DEFAULT false,
-                    base_url TEXT,
-                    batch_size INTEGER DEFAULT 100,
-                    is_available BOOLEAN DEFAULT false,
-                    last_checked TIMESTAMP,
-                    last_success TIMESTAMP,
-                    last_failure TIMESTAMP,
-                    failure_count INTEGER DEFAULT 0,
-                    success_count INTEGER DEFAULT 0,
-                    fallback_enabled BOOLEAN DEFAULT true,
-                    fallback_type VARCHAR(50) DEFAULT 'mock',
-                    metadata JSONB,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    -- 添加弃用标记
-                    deprecated BOOLEAN DEFAULT true,
-                    deprecation_note TEXT DEFAULT 'Replaced by LangChain text processor'
-                )
-            `)
 
-            // Create index for faster queries
-            await client.query(`
-                CREATE INDEX IF NOT EXISTS embeddings_config_provider_idx 
-                ON embeddings_config (provider)
-            `)
 
-            console.log('embeddings_config table initialized (deprecated, kept for compatibility)')
-        } catch (error) {
-            console.error('Failed to initialize embeddings_config table:', error)
-            throw error
-        } finally {
-            client.release()
-        }
-    }
-
-    /**
-     * Sync embeddings configuration from file to database
-     */
-    private async syncEmbeddingsConfigToDatabase(): Promise<void> {
-        if (!this.pool) return
-
-        try {
-            // Read embeddings config file
-            const configPath = path.join(process.cwd(), 'config', 'embeddings.json')
-            
-            if (!fs.existsSync(configPath)) {
-                // Create a default record marking as unavailable (no warning needed)
-                await this.upsertEmbeddingsConfig({
-                    provider: 'openai',
-                    model: 'text-embedding-ada-002',
-                    dimensions: 1536,
-                    endpoint: '/embeddings',
-                    api_key_configured: false,
-                    base_url: null,
-                    batch_size: 100,
-                    is_available: false,
-                    fallback_enabled: true,
-                    fallback_type: 'mock'
-                })
-                return
-            }
-
-            const configData = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-            
-            // Get LLM config for base URL and API key info
-            const dbConfigPath = path.join(process.cwd(), 'config', 'database.json')
-            let baseUrl = null
-            let apiKeyConfigured = false
-            
-            try {
-                // Try to get LLM URL from environment or config
-                baseUrl = process.env.LLM_URL || null
-                apiKeyConfigured = !!(process.env.LLM_API_KEY)
-            } catch (error) {
-                console.warn('Could not determine LLM config:', error)
-            }
-
-            // Upsert configuration to database
-            await this.upsertEmbeddingsConfig({
-                provider: configData.provider || 'openai',
-                model: configData.model || 'text-embedding-ada-002',
-                dimensions: configData.dimensions || 1536,
-                endpoint: configData.endpoint || '/embeddings',
-                api_key_configured: apiKeyConfigured,
-                base_url: baseUrl,
-                batch_size: configData.batchSize || 100,
-                is_available: false, // Will be updated by availability test
-                fallback_enabled: configData.fallback?.enabled ?? true,
-                fallback_type: configData.fallback?.type || 'mock'
-            })
-
-            console.log('Embeddings configuration synced to database')
-        } catch (error) {
-            console.error('Failed to sync embeddings config to database:', error)
-        }
-    }
-
-    /**
-     * Get embeddings configuration from database
-     */
-    async getEmbeddingsConfig(): Promise<EmbeddingsConfigRecord | null> {
-        if (!this.pool) return null
-
-        try {
-            const result = await this.pool.query(
-                'SELECT * FROM embeddings_config ORDER BY id DESC LIMIT 1'
-            )
-            return result.rows.length > 0 ? result.rows[0] : null
-        } catch (error) {
-            console.error('Failed to get embeddings config:', error)
-            return null
-        }
-    }
-
-    /**
-     * Upsert embeddings configuration
-     */
-    async upsertEmbeddingsConfig(config: Partial<EmbeddingsConfigRecord>): Promise<void> {
-        if (!this.pool) return
-
-        try {
-            const existing = await this.getEmbeddingsConfig()
-
-            if (existing) {
-                // Update existing record
-                await this.pool.query(`
-                    UPDATE embeddings_config 
-                    SET provider = $1,
-                        model = $2,
-                        dimensions = $3,
-                        endpoint = $4,
-                        api_key_configured = $5,
-                        base_url = $6,
-                        batch_size = $7,
-                        is_available = $8,
-                        fallback_enabled = $9,
-                        fallback_type = $10,
-                        metadata = $11,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $12
-                `, [
-                    config.provider || existing.provider,
-                    config.model || existing.model,
-                    config.dimensions || existing.dimensions,
-                    config.endpoint || existing.endpoint,
-                    config.api_key_configured ?? existing.api_key_configured,
-                    config.base_url ?? existing.base_url,
-                    config.batch_size || existing.batch_size,
-                    config.is_available ?? existing.is_available,
-                    config.fallback_enabled ?? existing.fallback_enabled,
-                    config.fallback_type || existing.fallback_type,
-                    config.metadata ? JSON.stringify(config.metadata) : existing.metadata,
-                    existing.id
-                ])
-            } else {
-                // Insert new record
-                await this.pool.query(`
-                    INSERT INTO embeddings_config (
-                        provider, model, dimensions, endpoint, api_key_configured,
-                        base_url, batch_size, is_available, fallback_enabled, fallback_type, metadata
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                `, [
-                    config.provider,
-                    config.model,
-                    config.dimensions,
-                    config.endpoint,
-                    config.api_key_configured ?? false,
-                    config.base_url ?? null,
-                    config.batch_size ?? 100,
-                    config.is_available ?? false,
-                    config.fallback_enabled ?? true,
-                    config.fallback_type ?? 'mock',
-                    config.metadata ? JSON.stringify(config.metadata) : null
-                ])
-            }
-        } catch (error) {
-            console.error('Failed to upsert embeddings config:', error)
-            throw error
-        }
-    }
-
-    /**
-     * Update embeddings availability status
-     */
-    async updateEmbeddingsAvailability(isAvailable: boolean, metadata?: any): Promise<void> {
-        if (!this.pool) return
-
-        try {
-            const timestampField = isAvailable ? 'last_success' : 'last_failure'
-            await this.pool.query(`
-                UPDATE embeddings_config 
-                SET is_available = $1,
-                    last_checked = CURRENT_TIMESTAMP,
-                    ${timestampField} = CURRENT_TIMESTAMP,
-                    metadata = COALESCE($2, metadata),
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = (SELECT id FROM embeddings_config ORDER BY id DESC LIMIT 1)
-            `, [isAvailable, metadata ? JSON.stringify(metadata) : null])
-        } catch (error) {
-            console.error('Failed to update embeddings availability:', error)
-        }
-    }
-
-    /**
-     * Test embeddings API availability
-     */
-    async testEmbeddingsAvailability(): Promise<boolean> {
-        if (!this.pool) return false
-
-        try {
-            const config = await this.getEmbeddingsConfig()
-            if (!config || !config.base_url) {
-                console.log('Embeddings API not configured, using fallback mode')
-                await this.updateEmbeddingsAvailability(false, { error: 'Configuration missing' })
-                return false
-            }
-
-            // Prepare test request
-            const baseUrl = config.base_url.replace('/v1', '') + '/v1'
-            const url = `${baseUrl}${config.endpoint}`
-            
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json'
-            }
-
-            // Add API key if configured
-            if (config.api_key_configured && process.env.LLM_API_KEY) {
-                headers['Authorization'] = `Bearer ${process.env.LLM_API_KEY}`
-            }
-
-            // Create abort controller for timeout
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify({
-                        input: 'test',
-                        model: config.model
-                    }),
-                    signal: controller.signal
-                })
-
-                clearTimeout(timeoutId)
-
-                const responseText = await response.text()
-                const trimmedResponse = responseText.trim()
-
-                // Check if response is valid JSON and has expected format
-                if (!trimmedResponse.startsWith('{')) {
-                    console.warn('Embeddings endpoint returned non-JSON response')
-                    await this.updateEmbeddingsAvailability(false, { 
-                        error: 'Non-JSON response',
-                        response_preview: trimmedResponse.substring(0, 100)
-                    })
-                    return false
-                }
-
-                const data = JSON.parse(responseText)
-                
-                if (response.ok && data.data && data.data[0] && data.data[0].embedding) {
-                    console.log('✓ Embeddings API is available')
-                    await this.updateEmbeddingsAvailability(true, { 
-                        test_time: new Date().toISOString(),
-                        status: 'healthy'
-                    })
-                    return true
-                } else {
-                    console.warn('Embeddings endpoint returned unexpected format')
-                    await this.updateEmbeddingsAvailability(false, { 
-                        error: 'Unexpected response format',
-                        status_code: response.status
-                    })
-                    return false
-                }
-            } catch (fetchError) {
-                clearTimeout(timeoutId)
-                
-                if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-                    console.log('Embeddings API test timed out, using fallback mode')
-                    await this.updateEmbeddingsAvailability(false, { error: 'Timeout after 5 seconds' })
-                } else {
-                    console.log('Embeddings API not available, using fallback mode')
-                    await this.updateEmbeddingsAvailability(false, { 
-                        error: fetchError instanceof Error ? fetchError.message : 'Unknown error'
-                    })
-                }
-                return false
-            }
-        } catch (error) {
-            console.log('Embeddings API test failed, using fallback mode')
-            await this.updateEmbeddingsAvailability(false, { 
-                error: error instanceof Error ? error.message : 'Test failed'
-            })
-            return false
-        }
-    }
-
-    /**
-     * Record embeddings usage result
-     */
-    async recordEmbeddingsUsage(success: boolean, error?: string): Promise<void> {
-        if (!this.pool) return
-
-        try {
-            const countField = success ? 'success_count' : 'failure_count'
-            const timestampField = success ? 'last_success' : 'last_failure'
-            
-            await this.pool.query(`
-                UPDATE embeddings_config 
-                SET ${countField} = ${countField} + 1,
-                    ${timestampField} = CURRENT_TIMESTAMP,
-                    is_available = $1,
-                    last_checked = CURRENT_TIMESTAMP,
-                    metadata = CASE 
-                        WHEN $2 IS NOT NULL THEN jsonb_set(
-                            COALESCE(metadata, '{}'::jsonb),
-                            '{last_error}',
-                            to_jsonb($2::text)
-                        )
-                        ELSE metadata
-                    END,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = (SELECT id FROM embeddings_config ORDER BY id DESC LIMIT 1)
-            `, [success, error || null])
-        } catch (error) {
-            console.error('Failed to record embeddings usage:', error)
-        }
-    }
 
     /**
      * Shutdown database connection

@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
         })
 
       case 'stats':
-        const stats = await sampleProblemsService.getProblemStats()
+        const stats = await sampleProblemsService.getProblemAnalytics()
         return NextResponse.json({
           success: true,
           data: stats
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
           }, { status: 400 })
         }
         
-        const toolProblems = await sampleProblemsService.getProblemsByTool(toolName)
+        const toolProblems = await sampleProblemsService.searchProblems({ tool_name: toolName })
         return NextResponse.json({
           success: true,
           data: toolProblems
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
       }
       
       const sampleProblemsService = getSampleProblemsService()
-      const results = await sampleProblemsService.searchByKeywords(keywords)
+      const results = await sampleProblemsService.searchProblems({ keywords })
       
       return NextResponse.json({
         success: true,

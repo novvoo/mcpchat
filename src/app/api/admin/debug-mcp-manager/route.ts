@@ -22,10 +22,10 @@ export async function GET() {
     const serverStatus = mcpManager.getServerStatus()
     
     // 尝试获取工具列表
-    let managerTools = []
-    let serviceTools = []
-    let managerError = null
-    let serviceError = null
+    let managerTools: any[] = []
+    let serviceTools: any[] = []
+    let managerError: string | null = null
+    let serviceError: string | null = null
     
     try {
       managerTools = await mcpManager.listTools()

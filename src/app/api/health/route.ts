@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
             await dbService.initialize()
             checks.database = true
             checks.details.database = {
-                vector_search: dbService.isVectorSearchEnabled(),
+
                 status: 'connected'
             }
         } catch (error) {

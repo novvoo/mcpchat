@@ -320,7 +320,8 @@ export class SampleProblemsService {
         client.release()
       }
     } catch (error) {
-      console.warn(`获取工具 ${toolName} 的问题模板失败:`, error)
+      // 模板获取失败是正常情况，使用动态生成即可
+      console.debug(`工具 ${toolName} 暂无问题模板，将使用动态生成`)
       return null
     }
   }

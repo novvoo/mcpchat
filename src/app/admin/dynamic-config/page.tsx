@@ -3,7 +3,7 @@
 // 动态配置管理页面 - 测试和管理基于PostgreSQL的配置系统
 
 import { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/Button'
 
 interface SystemStatus {
   systemConfig: {

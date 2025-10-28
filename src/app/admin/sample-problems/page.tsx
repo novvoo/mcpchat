@@ -3,7 +3,7 @@
 // Sample Problems Management Page
 
 import React, { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/Button'
 
 interface SampleProblem {
   id: string

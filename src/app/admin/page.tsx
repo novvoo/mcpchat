@@ -24,7 +24,7 @@ interface SystemInfo {
   database: {
     connected: boolean
     tables: string[]
-    vectorSearch: boolean
+
     connectionPool?: {
       total: number
       idle: number
@@ -88,7 +88,7 @@ export default function AdminPage() {
           name: '数据库服务',
           status: data.checks?.database ? 'healthy' : 'error',
           details: data.checks?.database ?
-            `连接正常${data.checks.details?.database?.vector_search ? ' (pgvector 已启用)' : ''}` :
+            '连接正常' :
             '连接失败'
         },
         {
@@ -388,7 +388,7 @@ export default function AdminPage() {
                       <span className={`w-3 h-3 rounded-full ${systemInfo.database.connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
                       <span className="text-black">状态: <span className={systemInfo.database.connected ? 'text-green-700 font-bold' : 'text-red-700 font-bold'}>{systemInfo.database.connected ? '已连接' : '断开'}</span></span>
                     </div>
-                    <div className="text-black">向量搜索: <span className={systemInfo.database.vectorSearch ? 'text-green-700 font-bold' : 'text-red-700 font-bold'}>{systemInfo.database.vectorSearch ? '启用' : '禁用'}</span></div>
+
                   </div>
                 </div>
 

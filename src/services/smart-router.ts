@@ -43,9 +43,9 @@ export class SmartRouter {
    * MCP工具选择和执行通过PostgreSQL处理，与LLM完全分离
    * 
    * 正确流程步骤：
-   * 1. Smart Router 通过PostgreSQL/pgvector分析用户输入，判断意图
+   * 1. Smart Router 通过LangChain分析用户输入，判断意图
    * 2. 如果识别出需要特定MCP工具：
-   *    a. 直接执行MCP工具（通过PostgreSQL/pgvector选择）
+   *    a. 直接执行MCP工具（通过LangChain选择）
    *    b. 返回工具执行结果
    * 3. 如果不需要特定工具或工具执行失败：
    *    a. 发送给LLM处理（纯对话模式，不包含任何工具信息）
@@ -196,6 +196,38 @@ export class SmartRouter {
   }
 
   /**
+   * 从文本中提取24点游戏的数字
+   */
+  private extract24PointNumbersFromText(text: string): number[] {
+    // 先移除 "24 point" 或 "24点" 这样的关键词，避免把24当作输入数字
+    let cleanText = text
+      .replace(/24\s*point/gi, '')
+      .replace(/24\s*点/g, '')
+      .replace(/得到\s*24/g, '')
+      .replace(/算出\s*24/g, '')
+      .replace(/make\s*24/gi, '')
+      .replace(/get\s*24/gi, '')
+    
+    // 尝试从数组格式提取: [9,32,15,27] 或 [9, 32, 15, 27]
+    const arrayMatch = cleanText.match(/\[([^\]]+)\]/)
+    if (arrayMatch) {
+      const numbers = arrayMatch[1].split(/[,\s]+/).map(n => parseInt(n.trim())).filter(n => !isNaN(n))
+      if (numbers.length >= 4) {
+        return numbers.slice(0, 4)
+      }
+    }
+    
+    // 尝试提取所有数字
+    const numberMatches = cleanText.match(/\d+/g)
+    if (numberMatches && numberMatches.length >= 4) {
+      return numberMatches.slice(0, 4).map(n => parseInt(n))
+    }
+    
+    // 如果没有找到足够的数字，返回空数组
+    return []
+  }
+
+  /**
    * 使用LangChain分析结果进行意图识别
    */
   private async analyzeIntentWithLangChain(tokenizedResult: any, originalQuestion: string): Promise<{
@@ -225,19 +257,33 @@ export class SmartRouter {
 
     // 数学计算类型的工具匹配
     if (domain === '数学' || primaryIntent.includes('计算') || primaryIntent.includes('数学')) {
-      // 24点游戏检测
-      if (numberEntities.length >= 4 && (originalQuestion.includes('24') || originalQuestion.includes('二十四'))) {
-        const numbers = numberEntities.map((e: any) => parseInt(e.text)).filter((n: number) => !isNaN(n)).slice(0, 4)
-        if (numbers.length === 4) {
-          return {
-            needsMCP: true,
-            suggestedTool: 'solve_24_point_game',
-            confidence: 0.9,
-            parameters: { numbers },
-            reasoning: 'LangChain detected 24-point game with 4 numbers',
-            domain,
-            complexity: context.complexity
-          }
+      // 24点游戏检测 - 增强版本，支持多种输入格式
+      if (originalQuestion.includes('24') || originalQuestion.includes('二十四')) {
+        // 首先尝试从实体中提取数字
+        let numbers = numberEntities.map((e: any) => parseInt(e.text)).filter((n: number) => !isNaN(n))
+        
+        // 如果实体识别不够，尝试直接从原始问题中提取
+        if (numbers.length < 4) {
+          numbers = this.extract24PointNumbersFromText(originalQuestion)
+        }
+        
+        // 如果仍然没有足够的数字，使用默认示例
+        if (numbers.length < 4) {
+          console.log('24点游戏：未找到足够的数字，使用默认示例 [3, 3, 8, 8]')
+          numbers = [3, 3, 8, 8]
+        } else {
+          // 确保只取前4个数字
+          numbers = numbers.slice(0, 4)
+        }
+        
+        return {
+          needsMCP: true,
+          suggestedTool: 'solve_24_point_game',
+          confidence: numbers.length === 4 ? 0.9 : 0.7,
+          parameters: { numbers },
+          reasoning: `LangChain detected 24-point game with numbers: [${numbers.join(', ')}]`,
+          domain,
+          complexity: context.complexity
         }
       }
 
@@ -413,7 +459,7 @@ export class SmartRouter {
    * 使用LLM处理消息（纯对话模式）
    * 
    * 重要：根据架构要求，LLM不处理工具选择和调用
-   * 工具选择通过PostgreSQL/pgvector在Smart Router层面处理
+   * 工具选择通过LangChain在Smart Router层面处理
    */
   private async processWithLLM(
     userMessage: string,
@@ -447,7 +493,7 @@ export class SmartRouter {
     // 根据架构要求，LLM不应该返回工具调用
     // 如果LLM意外返回了工具调用，记录警告但不执行
     if (llmResponse.toolCalls && llmResponse.toolCalls.length > 0) {
-      console.warn('LLM returned tool calls, but according to architecture, tools should be handled by Smart Router via PostgreSQL/pgvector')
+      console.warn('LLM returned tool calls, but according to architecture, tools should be handled by Smart Router via LangChain')
       console.warn('Ignoring tool calls from LLM:', llmResponse.toolCalls)
     }
 
@@ -470,7 +516,7 @@ export class SmartRouter {
   /**
    * 为纯 LLM 模式添加系统消息
    * 
-   * 重要：纯 LLM 模式不使用任何 embedding 或工具定义
+   * 重要：纯 LLM 模式不使用任何工具定义
    * 只是简单的对话模式
    */
   private addSystemMessageForLLM(messages: ChatMessage[]): void {

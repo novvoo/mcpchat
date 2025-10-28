@@ -57,7 +57,7 @@ export class LLMConfigService {
             await dbService.initialize()
 
             const result = await dbService.query(
-                'SELECT * FROM llm_config WHERE is_active = true ORDER BY updated_at DESC LIMIT 1'
+                'SELECT * FROM llm_configs WHERE is_active = true ORDER BY updated_at DESC LIMIT 1'
             )
 
             if (result.rows.length === 0) {

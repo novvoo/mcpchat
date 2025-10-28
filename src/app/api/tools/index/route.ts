@@ -1,7 +1,7 @@
-// Tool Index Management API - Manage tool vector indexing
+// Tool Index Management API - Manage tool indexing
 import { NextRequest, NextResponse } from 'next/server'
 import { getToolIndexer } from '@/services/tool-indexer'
-import { getToolVectorStore } from '@/services/tool-vector-store'
+import { getToolStore } from '@/services/tool-store'
 
 /**
  * 重新索引所有工具
@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
     if (action === 'clear') {
       console.log('Clearing tool indexes...')
       
-      const vectorStore = getToolVectorStore()
-      await vectorStore.clearAllTools()
+      const toolStore = getToolStore()
+      await toolStore.clearAllTools()
 
       return NextResponse.json({
         success: true,
@@ -61,10 +61,10 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   try {
     const toolIndexer = getToolIndexer()
-    const vectorStore = getToolVectorStore()
+    const toolStore = getToolStore()
     
     const stats = await toolIndexer.getIndexStats()
-    const allTools = await vectorStore.getAllIndexedTools()
+    const allTools = await toolStore.getAllIndexedTools()
 
     return NextResponse.json({
       success: true,

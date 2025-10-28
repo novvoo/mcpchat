@@ -38,13 +38,9 @@ export class ConfigLoader {
       // Load MCP configuration from file
       const mcpConfig = await this.loadMCPConfig()
 
-      // Load embeddings configuration from file
-      const embeddingsConfig = await this.loadEmbeddingsConfig()
-
       this.config = {
         llm: llmConfig,
-        mcp: mcpConfig,
-        embeddings: embeddingsConfig
+        mcp: mcpConfig
       }
 
       return this.config
@@ -86,31 +82,7 @@ export class ConfigLoader {
     }
   }
 
-  /**
-   * Load embeddings configuration from embeddings.json file
-   */
-  private async loadEmbeddingsConfig() {
-    try {
-      const fs = await import('fs/promises')
-      const path = await import('path')
-      const configPath = path.join(process.cwd(), 'config', 'embeddings.json')
-      const configData = await fs.readFile(configPath, 'utf-8')
-      return JSON.parse(configData)
-    } catch (error) {
-      // Fall back to default configuration (no warning needed)
-      return {
-        provider: 'openai',
-        model: 'text-embedding-ada-002',
-        dimensions: 1536,
-        endpoint: '/embeddings',
-        batchSize: 100,
-        fallback: {
-          enabled: true,
-          type: 'mock'
-        }
-      }
-    }
-  }
+
 
 
 
@@ -202,15 +174,7 @@ export class ConfigLoader {
     return this.config.llm
   }
 
-  /**
-   * Get embeddings configuration
-   */
-  public getEmbeddingsConfig() {
-    if (!this.config) {
-      throw new Error('Configuration not loaded. Call loadConfig() first.')
-    }
-    return this.config.embeddings
-  }
+
 
   /**
    * Reload configuration from sources

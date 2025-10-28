@@ -10,10 +10,5 @@
             "min": 2,
             "max": 10
         }
-    },
-    "pgvector": {
-        "enabled": true,
-        "similarityThreshold": 0.7,
-        "maxResults": 5
     }
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/Button'
 import AdminNavigation from '@/components/AdminNavigation'
 
 interface ToolPattern {
@@ -135,7 +135,7 @@ export default function DynamicPatternsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-2">动态模式学习管理</h1>
         <p className="text-muted-foreground">
-          基于PostgreSQL/pgvector的智能关键词生成和模式学习系统
+          基于PostgreSQL的智能关键词生成和模式学习系统
         </p>
       </div>
 
@@ -329,7 +329,7 @@ export default function DynamicPatternsPage() {
             <h4 className="font-medium mb-2">🔧 技术特性</h4>
             <ul className="space-y-1 text-muted-foreground">
               <li>• PostgreSQL存储模式数据</li>
-              <li>• pgvector支持语义搜索</li>
+              <li>• LangChain支持语义分析</li>
               <li>• 动态置信度调整</li>
               <li>• 实时模式更新</li>
             </ul>

@@ -18,7 +18,7 @@ export interface KeywordLearningResult {
 }
 
 /**
- * 动态模式学习器 - 基于PostgreSQL/pgvector的智能关键词生成
+ * 动态模式学习器 - 基于PostgreSQL的智能关键词生成
  */
 export class DynamicPatternLearner {
     private static instance: DynamicPatternLearner
@@ -69,12 +69,11 @@ export class DynamicPatternLearner {
                 )
             `)
 
-            // 关键词嵌入表（用于语义相似性）
+            // 关键词统计表（用于使用频率分析）
             await client.query(`
-                CREATE TABLE IF NOT EXISTS keyword_embeddings (
+                CREATE TABLE IF NOT EXISTS keyword_statistics (
                     id SERIAL PRIMARY KEY,
                     keyword VARCHAR(255) NOT NULL UNIQUE,
-                    embedding vector(1536),
                     tool_names TEXT[] DEFAULT '{}',
                     usage_count INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -385,6 +384,7 @@ export class DynamicPatternLearner {
             'graph': ['图论', 'graph', 'coloring'],
             'scheduling': ['调度', 'scheduling', 'schedule'],
             'puzzle': ['谜题', 'puzzle', '游戏'],
+            'sudoku': ['谜题', 'sudoku', '游戏'],
             'algorithm': ['算法', 'algorithm', 'solve'],
             'mathematics': ['数学', 'mathematics', 'math'],
             'statistics': ['统计', 'statistics', 'statistical']

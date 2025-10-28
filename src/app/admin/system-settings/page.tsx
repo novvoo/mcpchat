@@ -158,8 +158,8 @@ export default function SystemSettingsPage() {
               <div className="absolute inset-0 w-16 h-16 border-4 border-transparent border-r-purple-400 rounded-full animate-spin" style={{ animationDirection: 'reverse' }}></div>
             </div>
             <div className="mt-6 text-center">
-              <p className="text-lg font-medium text-gray-900">加载配置中</p>
-              <p className="text-sm text-gray-700 mt-1">正在获取系统配置信息...</p>
+              <p className="text-lg font-medium text-gray-800">加载配置中</p>
+              <p className="text-sm text-gray-600 mt-1">正在获取系统配置信息...</p>
             </div>
           </div>
         </div>
@@ -187,7 +187,7 @@ export default function SystemSettingsPage() {
                   <h1 className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
                     系统设置
                   </h1>
-                  <p className="text-gray-800 mt-1 text-sm lg:text-base font-medium">
+                  <p className="text-gray-600 mt-1 text-sm lg:text-base font-medium">
                     在线配置LLM和MCP服务，实时管理系统连接
                   </p>
                 </div>
@@ -301,18 +301,18 @@ export default function SystemSettingsPage() {
                             </span>
                           </div>
                         </div>
-                        <div className="text-sm text-gray-800 flex flex-wrap items-center gap-4">
-                          <span className="flex items-center gap-1 font-medium">
-                            <Server className="h-4 w-4" />
+                        <div className="text-sm text-gray-700 flex flex-wrap items-center gap-4">
+                          <span className="flex items-center gap-1 font-medium text-gray-800">
+                            <Server className="h-4 w-4 text-blue-600" />
                             {config.model}
                           </span>
                           {config.base_url && (
-                            <span className="flex items-center gap-1">
-                              <Shield className="h-4 w-4" />
+                            <span className="flex items-center gap-1 text-gray-700">
+                              <Shield className="h-4 w-4 text-green-600" />
                               自定义端点
                             </span>
                           )}
-                          <span className="text-xs text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                          <span className="text-xs text-gray-600 bg-blue-50 px-2 py-1 rounded border border-blue-200">
                             温度: {config.temperature} | 令牌: {config.max_tokens}
                           </span>
                         </div>
@@ -420,13 +420,13 @@ export default function SystemSettingsPage() {
                             )}
                           </div>
                         </div>
-                        <div className="text-sm text-gray-800 flex flex-wrap items-center gap-4">
-                          <span className="flex items-center gap-1 font-mono bg-gray-200 px-2 py-1 rounded text-gray-900 font-medium">
-                            <Server className="h-4 w-4" />
+                        <div className="text-sm text-gray-700 flex flex-wrap items-center gap-4">
+                          <span className="flex items-center gap-1 font-mono bg-slate-100 px-2 py-1 rounded text-slate-800 font-medium border border-slate-200">
+                            <Server className="h-4 w-4 text-green-600" />
                             {config.command} {config.args.join(' ')}
                           </span>
                           {Object.keys(config.env || {}).length > 0 && (
-                            <span className="text-xs text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                            <span className="text-xs text-gray-600 bg-green-50 px-2 py-1 rounded border border-green-200">
                               环境变量: {Object.keys(config.env || {}).length}个
                             </span>
                           )}

@@ -1,7 +1,7 @@
 // Tool Indexer Service - Manages tool indexing operations
 
 import { Tool } from '@/types'
-import { getToolVectorStore } from './tool-vector-store'
+import { getToolStore } from './tool-store'
 import { getMCPToolsService } from './mcp-tools'
 import { getMCPManager } from './mcp-manager'
 
@@ -34,13 +34,11 @@ export class ToolIndexer {
    */
   async getIndexStats(): Promise<{
     totalTools: number
-    toolsWithLangChain: number
-    toolsLegacy: number
     lastIndexTime: Date | null
     isIndexing: boolean
   }> {
-    const vectorStore = getToolVectorStore()
-    const stats = await vectorStore.getStats()
+    const toolStore = getToolStore()
+    const stats = await toolStore.getStats()
     
     return {
       ...stats,
@@ -69,8 +67,8 @@ export class ToolIndexer {
       console.log(`Found ${tools.length} tools to index`)
 
       // Clear existing indexes
-      const vectorStore = getToolVectorStore()
-      await vectorStore.clearAllTools()
+      const toolStore = getToolStore()
+      await toolStore.clearAllTools()
       
       // Index each tool
       await this.indexTools(tools)
@@ -90,8 +88,8 @@ export class ToolIndexer {
    * Index a list of tools
    */
   private async indexTools(tools: Tool[]): Promise<void> {
-    const vectorStore = getToolVectorStore()
-    await vectorStore.initialize()
+    const toolStore = getToolStore()
+    await toolStore.initialize()
     
     // Get MCP manager to determine server names
     const mcpManager = getMCPManager()
@@ -116,8 +114,8 @@ export class ToolIndexer {
           }
         }
         
-        // Index the tool (without embedding for now)
-        await vectorStore.indexTool(tool, serverName)
+        // Index the tool
+        await toolStore.indexTool(tool, serverName)
         
         console.log(`Indexed tool: ${tool.name} (server: ${serverName})`)
         
@@ -131,9 +129,9 @@ export class ToolIndexer {
    * Index a single tool
    */
   async indexTool(tool: Tool, serverName: string): Promise<void> {
-    const vectorStore = getToolVectorStore()
-    await vectorStore.initialize()
-    await vectorStore.indexTool(tool, serverName)
+    const toolStore = getToolStore()
+    await toolStore.initialize()
+    await toolStore.indexTool(tool, serverName)
     console.log(`Indexed single tool: ${tool.name}`)
   }
 }

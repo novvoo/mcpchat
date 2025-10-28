@@ -1,6 +1,7 @@
-// Tool Search API - Vector-based tool search for problem matching
+// Tool Search API - LangChain-based tool search for problem matching
 import { NextRequest, NextResponse } from 'next/server'
 import { getToolIndexer } from '@/services/tool-indexer'
+import { getSemanticToolMatcher } from '@/services/semantic-tool-matcher'
 
 /**
  * 工具搜索API - 基于向量相似度搜索匹配的工具
@@ -19,14 +20,20 @@ export async function POST(request: NextRequest) {
 
     console.log(`Searching tools for query: "${query}"`)
 
-    const toolIndexer = getToolIndexer()
-    const results = await toolIndexer.searchTools(query, threshold, maxResults)
+    const semanticMatcher = getSemanticToolMatcher()
+    await semanticMatcher.initialize()
+    const matches = await semanticMatcher.matchTools(query)
+
+    // Filter by threshold and limit results
+    const filteredResults = matches
+      .filter(match => match.confidence >= threshold)
+      .slice(0, maxResults)
 
     return NextResponse.json({
       success: true,
       query,
-      results,
-      count: results.length,
+      results: filteredResults,
+      count: filteredResults.length,
       threshold,
       maxResults
     })
@@ -34,7 +41,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Tool search API error:', error)
     return NextResponse.json(
-      { 
+      {
         error: 'Internal server error',
         message: error instanceof Error ? error.message : 'Unknown error'
       },
@@ -60,7 +67,7 @@ export async function GET() {
   } catch (error) {
     console.error('Tool search stats API error:', error)
     return NextResponse.json(
-      { 
+      {
         error: 'Internal server error',
         message: error instanceof Error ? error.message : 'Unknown error'
       },

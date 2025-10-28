@@ -1,36 +1,28 @@
-// Tool Vector Store - Manage tool embeddings for tool matching (simplified version)
+// Tool Store - Manage tool metadata for tool matching (using LangChain)
 
 import { Tool } from '@/types'
 import { getDatabaseService } from './database'
-import pgvector from 'pgvector/pg'
-
-export interface ToolSearchResult {
-  tool: Tool
-  similarity: number
-  serverName: string
-}
 
 /**
- * 工具向量存储服务 - 简化版本，主要用于工具元数据存储
+ * 工具存储服务 - 用于工具元数据存储和管理
  * 
- * 注意：向量搜索功能已弃用，现在使用LangChain进行意图识别
- * 此服务主要用于存储工具基本信息，不再处理embeddings
+ * 使用 LangChain 进行意图识别和工具匹配，不再使用向量搜索
  */
-export class ToolVectorStore {
-  private static instance: ToolVectorStore
+export class ToolStore {
+  private static instance: ToolStore
   private initialized = false
 
   private constructor() {}
 
-  public static getInstance(): ToolVectorStore {
-    if (!ToolVectorStore.instance) {
-      ToolVectorStore.instance = new ToolVectorStore()
+  public static getInstance(): ToolStore {
+    if (!ToolStore.instance) {
+      ToolStore.instance = new ToolStore()
     }
-    return ToolVectorStore.instance
+    return ToolStore.instance
   }
 
   /**
-   * 初始化向量存储
+   * 初始化工具存储
    */
   async initialize(): Promise<void> {
     if (this.initialized) return
@@ -40,19 +32,17 @@ export class ToolVectorStore {
       await dbService.initialize()
 
       this.initialized = true
-      console.log('Tool vector store initialized (for tool matching only)')
+      console.log('Tool store initialized (using LangChain for intent recognition)')
     } catch (error) {
-      console.error('Failed to initialize tool vector store:', error)
+      console.error('Failed to initialize tool store:', error)
       throw error
     }
   }
 
   /**
-   * 索引工具（存储工具基本信息，不再使用embeddings）
-   * 
-   * @deprecated embedding参数已弃用，现在使用LangChain进行意图识别
+   * 索引工具（存储工具基本信息）
    */
-  async indexTool(tool: Tool, serverName: string, embedding?: number[]): Promise<void> {
+  async indexTool(tool: Tool, serverName: string): Promise<void> {
     if (!this.initialized) {
       await this.initialize()
     }
@@ -62,7 +52,6 @@ export class ToolVectorStore {
     if (!client) return
 
     try {
-      // 只存储工具基本信息，不再使用embeddings
       await client.query(
         `INSERT INTO mcp_tools (name, description, input_schema, server_name, metadata)
          VALUES ($1, $2, $3, $4, $5)
@@ -79,15 +68,13 @@ export class ToolVectorStore {
           JSON.stringify(tool.inputSchema),
           serverName,
           JSON.stringify({ 
-            indexed_at: new Date().toISOString(), 
-            has_embedding: false,
-            langchain_enabled: true,
-            note: 'Using LangChain for intent recognition instead of embeddings'
+            indexed_at: new Date().toISOString(),
+            langchain_enabled: true
           })
         ]
       )
 
-      console.log(`Tool ${tool.name} indexed (using LangChain for intent recognition)`)
+      console.log(`Tool ${tool.name} indexed`)
     } catch (error) {
       console.error(`Failed to index tool ${tool.name}:`, error)
       throw error
@@ -96,20 +83,7 @@ export class ToolVectorStore {
     }
   }
 
-  /**
-   * 搜索相似工具 - 已弃用，现在使用LangChain进行意图识别
-   * 
-   * @deprecated 向量搜索已弃用，现在使用LangChain的语义分析进行工具匹配
-   * 此方法保留仅为向后兼容，始终返回空结果
-   */
-  async searchSimilarTools(
-    queryEmbedding: number[], 
-    threshold: number = 0.7, 
-    maxResults: number = 5
-  ): Promise<ToolSearchResult[]> {
-    console.warn('searchSimilarTools is deprecated. Use LangChain text processor for intent recognition instead.')
-    return [] // 不再执行向量搜索
-  }
+
 
   /**
    * 获取所有已索引的工具
@@ -165,12 +139,10 @@ export class ToolVectorStore {
   }
 
   /**
-   * 获取统计信息 - 更新为LangChain模式
+   * 获取统计信息
    */
   async getStats(): Promise<{
     totalTools: number
-    toolsWithLangChain: number
-    toolsLegacy: number
   }> {
     if (!this.initialized) {
       await this.initialize()
@@ -178,27 +150,16 @@ export class ToolVectorStore {
 
     const dbService = getDatabaseService()
     const client = await dbService.getClient()
-    if (!client) return { totalTools: 0, toolsWithLangChain: 0, toolsLegacy: 0 }
+    if (!client) return { totalTools: 0 }
 
     try {
       const totalResult = await client.query('SELECT COUNT(*) as count FROM mcp_tools')
-      const langchainResult = await client.query(`
-        SELECT COUNT(*) as count FROM mcp_tools 
-        WHERE metadata->>'langchain_enabled' = 'true'
-      `)
-      
       const totalTools = parseInt(totalResult.rows[0].count)
-      const toolsWithLangChain = parseInt(langchainResult.rows[0].count)
-      const toolsLegacy = totalTools - toolsWithLangChain
 
-      return {
-        totalTools,
-        toolsWithLangChain,
-        toolsLegacy
-      }
+      return { totalTools }
     } catch (error) {
       console.error('Failed to get stats:', error)
-      return { totalTools: 0, toolsWithLangChain: 0, toolsLegacy: 0 }
+      return { totalTools: 0 }
     } finally {
       client.release()
     }
@@ -208,4 +169,4 @@ export class ToolVectorStore {
 /**
  * 便捷函数
  */
-export const getToolVectorStore = () => ToolVectorStore.getInstance()
+export const getToolStore = () => ToolStore.getInstance()

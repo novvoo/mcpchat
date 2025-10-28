@@ -90,6 +90,12 @@ async function getMCPStatusFromDatabase() {
     const { getDatabaseService } = await import('@/services/database')
     const dbService = getDatabaseService()
     
+    // 确保数据库服务已初始化
+    if (!dbService.isInitialized()) {
+      console.log('数据库服务未初始化，尝试初始化...')
+      await dbService.initialize()
+    }
+    
     // 获取MCP服务器状态
     const serversResult = await dbService.query(`
       SELECT 

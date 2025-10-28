@@ -51,7 +51,7 @@ export interface LLMConfig {
   headers?: Record<string, string>
 }
 
-// Note: EmbeddingsConfig interface removed as embeddings are no longer used
+
 
 // Application configuration interface
 export interface AppConfig {
@@ -59,7 +59,7 @@ export interface AppConfig {
   mcp: {
     servers: Record<string, MCPServerConfig>
   }
-  // embeddings: EmbeddingsConfig // Removed as embeddings are no longer used
+
 }
 
 // Error response format for API endpoints

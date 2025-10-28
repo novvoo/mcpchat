@@ -156,7 +156,7 @@ export class EnhancedSmartRouter {
   }
 
   /**
-   * 使用LangChain分析结果结合PostgreSQL/pgvector进行智能工具匹配
+   * 使用LangChain分析结果进行智能工具匹配
    */
   private async analyzeIntentWithLangChain(tokenizedResult: any, originalQuestion: string): Promise<{
     needsMCP: boolean
