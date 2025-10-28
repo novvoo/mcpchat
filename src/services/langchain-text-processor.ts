@@ -363,7 +363,10 @@ export class LangChainTextProcessor {
       primary = '数学计算'
     } else if (question.includes('24') || question.includes('运算')) {
       primary = '数学计算'
-
+    } else if (question.includes('鸡兔同笼') || question.includes('鸡兔') || 
+               (question.includes('鸡') && question.includes('兔')) ||
+               (question.includes('chicken') && question.includes('rabbit'))) {
+      primary = '数学计算'
     } else if (question.includes('代码') || question.includes('Python') || question.includes('算法')) {
       primary = '代码生成'
     } else if (question.includes('调试') || question.includes('错误')) {

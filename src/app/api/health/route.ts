@@ -74,16 +74,17 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // Check MCP system
+        // Check MCP system (non-blocking)
         try {
-            const { getMCPToolsService } = await import('@/services/mcp-tools')
-            const mcpService = getMCPToolsService()
-            const tools = await mcpService.getAvailableTools()
+            const { MCPInitializer } = await import('@/services/mcp-initializer')
+            const initializer = MCPInitializer.getInstance()
+            const status = initializer.getStatus()
             
             checks.details.mcp_system = {
-                total_tools: tools.length,
-                status: tools.length > 0 ? 'ready' : 'no_tools',
-                ready: tools.length > 0
+                total_tools: status.details.totalTools,
+                status: status.ready ? 'ready' : (status.error ? 'error' : 'initializing'),
+                ready: status.ready,
+                error: status.error
             }
         } catch (error) {
             checks.details.mcp_system = {

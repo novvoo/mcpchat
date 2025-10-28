@@ -44,9 +44,3 @@ next-env.d.ts
 config/*.json
 debug—*.js
 */debug—*.js
-test—*.js
-*/test—*.js
-check—*.js
-*/check—*.js
-fix—*.js
-*/fix—*.js

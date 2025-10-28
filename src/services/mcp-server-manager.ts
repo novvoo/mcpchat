@@ -18,7 +18,7 @@ export class MCPServerManager {
     httpClient?: any // For HTTP transport
   }> = new Map()
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): MCPServerManager {
     if (!MCPServerManager.instance) {
@@ -108,7 +108,7 @@ export class MCPServerManager {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('Unknown error')
         console.warn(`Attempt ${attempt}/${maxRetries} failed for server ${serverName}:`, lastError.message)
-        
+
         if (attempt < maxRetries) {
           console.log(`Waiting ${retryDelay}ms before retry...`)
           await new Promise(resolve => setTimeout(resolve, retryDelay))
@@ -134,13 +134,32 @@ export class MCPServerManager {
       // Test basic connectivity first
       const connectTimeout = serverInfo.config.timeout || 60000
       console.log(`Testing connectivity to ${serverInfo.config.url} with timeout ${connectTimeout}ms`)
-      
+
+      // Build headers from config
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'MCPChat/1.0.0'
+      }
+
+      // Add custom headers from config
+      if (serverInfo.config.env && serverInfo.config.env.header) {
+        const customHeaders = Array.isArray(serverInfo.config.env.header)
+          ? serverInfo.config.env.header
+          : [serverInfo.config.env.header]
+
+        for (const headerStr of customHeaders) {
+          const [key, value] = headerStr.split(':').map((s: string) => s.trim())
+          if (key && value) {
+            headers[key] = value
+          }
+        }
+      }
+
+      console.log(`Using headers:`, headers)
+
       const testResponse = await fetch(serverInfo.config.url, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'User-Agent': 'MCPChat/1.0.0'
-        },
+        headers,
         body: JSON.stringify({
           jsonrpc: '2.0',
           id: 0,
@@ -269,7 +288,7 @@ export class MCPServerManager {
       if (serverInfo.config.transport === 'http') {
         // Load tools via MCP JSON-RPC over HTTP
         const response = await this.sendMCPRequest(serverInfo, 'tools/list', {})
-        
+
         if (response.result && response.result.tools) {
           serverInfo.tools = response.result.tools.map((tool: any) => ({
             name: tool.name,
@@ -331,7 +350,7 @@ export class MCPServerManager {
             if (response.id === 1 && !initResponseReceived) {
               initResponseReceived = true
               console.log(`${serverName} initialized, sending notifications/initialized`)
-              
+
               // Send notifications/initialized
               const initializedNotification = JSON.stringify({
                 jsonrpc: '2.0',
@@ -352,7 +371,7 @@ export class MCPServerManager {
             // Handle tools/list response
             else if (response.id === 2 && !toolsResponseReceived) {
               toolsResponseReceived = true
-              
+
               if (response.result && response.result.tools) {
                 serverInfo.tools = response.result.tools.map((tool: any) => ({
                   name: tool.name,
@@ -364,7 +383,7 @@ export class MCPServerManager {
                 serverInfo.tools = []
                 console.warn(`No tools found in response from ${serverName}`)
               }
-              
+
               cleanup()
               resolve()
             }
@@ -409,8 +428,20 @@ export class MCPServerManager {
       throw new Error(`Server ${serverName} not found`)
     }
 
+    // Wait for server to be ready if it's still initializing
+    if (serverInfo.status === 'initializing') {
+      console.log(`Server ${serverName} is still initializing, waiting...`)
+      // Wait up to 10 seconds for initialization to complete
+      const maxWaitTime = 10000
+      const startTime = Date.now()
+
+      while (serverInfo.status === 'initializing' && (Date.now() - startTime) < maxWaitTime) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+
     if (serverInfo.status !== 'connected') {
-      throw new Error(`Server ${serverName} is not connected`)
+      throw new Error(`Server ${serverName} is not connected (status: ${serverInfo.status})`)
     }
 
     return [...serverInfo.tools]
@@ -426,7 +457,7 @@ export class MCPServerManager {
     error?: string
   }> {
     const status: Record<string, any> = {}
-    
+
     for (const [serverName, serverInfo] of this.servers.entries()) {
       status[serverName] = {
         config: serverInfo.config,
@@ -435,7 +466,7 @@ export class MCPServerManager {
         error: serverInfo.error
       }
     }
-    
+
     return status
   }
 
@@ -593,12 +624,29 @@ export class MCPServerManager {
       paramsKeys: Object.keys(params)
     })
 
+    // Build headers from config
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+
+    // Add custom headers from config
+    if (serverInfo.config.env && serverInfo.config.env.header) {
+      const customHeaders = Array.isArray(serverInfo.config.env.header)
+        ? serverInfo.config.env.header
+        : [serverInfo.config.env.header]
+
+      for (const headerStr of customHeaders) {
+        const [key, value] = headerStr.split(':').map((s: string) => s.trim())
+        if (key && value) {
+          headers[key] = value
+        }
+      }
+    }
+
     try {
       const response = await fetch(serverInfo.httpClient.url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(request),
         signal: AbortSignal.timeout(serverInfo.httpClient.timeout)
       })
@@ -611,9 +659,39 @@ export class MCPServerManager {
         throw new Error(`HTTP request failed: ${response.status} ${response.statusText} - ${responseText}`)
       }
 
-      const result = await response.json()
+      // Check if response is SSE format based on content-type
+      const contentType = response.headers.get('content-type') || ''
+      let result: any
+
+      if (contentType.includes('text/event-stream')) {
+        // Parse SSE format
+        const text = await response.text()
+        console.log(`MCP SSE response:`, text)
+
+        // Extract JSON from SSE data lines
+        const lines = text.split('\n')
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.substring(6)
+            try {
+              result = JSON.parse(jsonStr)
+              break
+            } catch (e) {
+              console.warn('Failed to parse SSE data line:', line)
+            }
+          }
+        }
+
+        if (!result) {
+          throw new Error('No valid JSON found in SSE response')
+        }
+      } else {
+        // Parse regular JSON
+        result = await response.json()
+      }
+
       console.log(`MCP response result:`, result)
-      
+
       if (result.error) {
         console.error(`MCP error response:`, result.error)
         throw new Error(`MCP error: ${result.error.message || JSON.stringify(result.error)}`)
@@ -647,7 +725,7 @@ export class MCPServerManager {
             text: `Example execution completed for type: ${args.example_type}`
           }]
         }
-      
+
       case 'solve_n_queens':
         const n = args.n || 8
         return {
@@ -656,7 +734,7 @@ export class MCPServerManager {
             text: `N-Queens solution for ${n}x${n} board: Found ${n > 0 ? 'solution' : 'no solution'}`
           }]
         }
-      
+
       case 'solve_sudoku':
         return {
           content: [{
@@ -664,7 +742,7 @@ export class MCPServerManager {
             text: 'Sudoku puzzle solved successfully'
           }]
         }
-      
+
       case 'echo':
         return {
           content: [{
@@ -672,7 +750,7 @@ export class MCPServerManager {
             text: `Echo: ${args.message}`
           }]
         }
-      
+
       default:
         return {
           content: [{
@@ -700,7 +778,7 @@ export class MCPServerManager {
         // For stdio, terminate the process
         if (serverInfo.process && !serverInfo.process.killed) {
           serverInfo.process.kill('SIGTERM')
-          
+
           // Wait for graceful shutdown or force kill after timeout
           await new Promise<void>((resolve) => {
             const timeout = setTimeout(() => {
@@ -733,13 +811,13 @@ export class MCPServerManager {
       // Load configuration from config/mcp.json
       const fs = await import('fs/promises')
       const path = await import('path')
-      
+
       const configPath = path.join(process.cwd(), 'config', 'mcp.json')
       const configData = await fs.readFile(configPath, 'utf-8')
       const config = JSON.parse(configData)
-      
+
       const servers: Record<string, MCPServerConfig> = {}
-      
+
       // Initialize enabled servers
       for (const [serverName, serverConfig] of Object.entries(config.mcpServers || {})) {
         const mcpConfig = serverConfig as any
@@ -757,12 +835,12 @@ export class MCPServerManager {
             retryAttempts: mcpConfig.retryAttempts,
             retryDelay: mcpConfig.retryDelay
           }
-          
+
           servers[serverName] = fullConfig
           await this.initializeServer(serverName, fullConfig)
         }
       }
-      
+
       return servers
     } catch (error) {
       console.error('Failed to initialize from config:', error)
@@ -774,7 +852,7 @@ export class MCPServerManager {
    * Shutdown all servers
    */
   async shutdown(): Promise<void> {
-    const shutdownPromises = Array.from(this.servers.keys()).map(serverName => 
+    const shutdownPromises = Array.from(this.servers.keys()).map(serverName =>
       this.shutdownServer(serverName)
     )
     await Promise.all(shutdownPromises)

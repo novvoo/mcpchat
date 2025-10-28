@@ -19,7 +19,7 @@ export class SimpleIntentRecognizer {
     'echo': ['回显', 'echo'],
     'info': ['信息', 'info', '帮助'],
     'solve_24_point_game': ['24点', '24 point', '得到24', '算出24', '24游戏', '加减乘除', '四则运算', 'make 24', 'get 24'],
-    'solve_chicken_rabbit_problem': ['鸡兔', 'chicken rabbit']
+    'solve_chicken_rabbit_problem': ['鸡兔', '鸡兔同笼', '鸡兔问题', 'chicken rabbit', 'chicken rabbit problem', '头', '腿', '只鸡', '只兔', '个头', '条腿', '同笼']
   }
 
   // 动态关键词映射缓存

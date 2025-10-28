@@ -30,7 +30,7 @@ async function verifyAllTables() {
     try {
         console.log('✓ 连接数据库成功\n');
 
-        // 所有必需的表及其关键列 (已移除embeddings相关表，现在使用LangChain)
+        // 所有必需的表及其关键列 (使用LangChain)
         const requiredTables = {
             'mcp_tools': ['id', 'name', 'description', 'keywords', 'parameter_mappings'],
             'tool_keyword_mappings': ['id', 'tool_name', 'keyword', 'confidence', 'source'],

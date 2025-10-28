@@ -305,6 +305,11 @@ export class EnhancedSmartRouter {
         }
         break
 
+      case 'solve_chicken_rabbit_problem':
+        const chickenRabbitParams = this.extractChickenRabbitParams(originalQuestion, numberEntities)
+        Object.assign(parameters, chickenRabbitParams)
+        break
+
       case 'run_example':
         parameters.example_name = 'basic'
         break
@@ -388,6 +393,18 @@ export class EnhancedSmartRouter {
         suggestedTool: 'solve_sudoku',
         confidence: 0.8,
         reasoning: 'Fallback detected Sudoku keywords'
+      }
+    }
+
+    // 鸡兔同笼问题检测
+    if (lowerMessage.includes('鸡兔同笼') || lowerMessage.includes('鸡兔') || 
+        (lowerMessage.includes('鸡') && lowerMessage.includes('兔')) ||
+        lowerMessage.includes('chicken') && lowerMessage.includes('rabbit')) {
+      return {
+        needsMCP: true,
+        suggestedTool: 'solve_chicken_rabbit_problem',
+        confidence: 0.9,
+        reasoning: 'Fallback detected chicken-rabbit problem keywords'
       }
     }
 
@@ -630,6 +647,54 @@ export class EnhancedSmartRouter {
 
   private async formatMCPError(toolName: string, errorMessage: string, params: Record<string, any>): Promise<string> {
     return `❌ **${toolName} 执行失败**\n\n错误信息：${errorMessage}`
+  }
+
+  /**
+   * 提取鸡兔同笼问题参数
+   */
+  private extractChickenRabbitParams(input: string, numberEntities: any[]): Record<string, any> {
+    const params: Record<string, any> = {}
+    
+    // 提取数字
+    const numbers = numberEntities.map((e: any) => parseInt(e.text)).filter((n: number) => !isNaN(n))
+    
+    // 常见的鸡兔同笼问题模式
+    // 模式1: "有鸡兔共35只，脚共94只"
+    const pattern1 = /(?:共|总共|一共)?\s*(\d+)\s*只.*?(?:共|总共|一共)?\s*(\d+)\s*(?:只脚|脚)/
+    const match1 = input.match(pattern1)
+    if (match1) {
+      params.total_animals = parseInt(match1[1])
+      params.total_legs = parseInt(match1[2])
+      return params
+    }
+    
+    // 模式2: "鸡兔同笼，头35个，脚94只"
+    const pattern2 = /(?:头|个)\s*(\d+).*?脚\s*(\d+)/
+    const match2 = input.match(pattern2)
+    if (match2) {
+      params.total_animals = parseInt(match2[1])
+      params.total_legs = parseInt(match2[2])
+      return params
+    }
+    
+    // 模式3: 从数字实体中推断（通常前两个数字是动物总数和脚总数）
+    if (numbers.length >= 2) {
+      // 判断哪个是动物数，哪个是脚数（脚数通常比动物数大）
+      const [num1, num2] = numbers.slice(0, 2)
+      if (num2 > num1 && num2 > num1 * 2) { // 脚数应该大于动物数的2倍
+        params.total_animals = num1
+        params.total_legs = num2
+      } else if (num1 > num2 && num1 > num2 * 2) {
+        params.total_animals = num2
+        params.total_legs = num1
+      } else {
+        // 默认假设第一个是动物数，第二个是脚数
+        params.total_animals = num1
+        params.total_legs = num2
+      }
+    }
+    
+    return params
   }
 
   /**

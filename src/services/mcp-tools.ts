@@ -32,6 +32,17 @@ export class MCPToolsService {
    */
   async getAvailableTools(): Promise<Tool[]> {
     try {
+      // 如果系统正在启动初始化，避免重复初始化
+      if (process.env.MCP_STARTUP_INITIALIZING === 'true') {
+        console.log('系统正在启动初始化中，等待完成...')
+        // 等待启动初始化完成
+        let attempts = 0
+        while (process.env.MCP_STARTUP_INITIALIZING === 'true' && attempts < 50) {
+          await new Promise(resolve => setTimeout(resolve, 200))
+          attempts++
+        }
+      }
+
       const mcpManager = getMCPManager()
       
       // 确保MCP管理器已初始化

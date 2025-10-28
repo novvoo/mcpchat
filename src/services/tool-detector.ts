@@ -100,8 +100,8 @@ export class ToolCallDetector {
         toolNames: ['solve_24_point_game']
       },
       {
-        keywords: ['chicken', 'rabbit', 'legs', 'heads', 'animals'],
-        phrases: ['chicken rabbit problem', 'chickens and rabbits', 'legs and heads'],
+        keywords: ['chicken', 'rabbit', 'legs', 'heads', 'animals', '鸡兔', '鸡兔同笼', '鸡兔问题', '头', '腿', '只鸡', '只兔', '个头', '条腿', '同笼'],
+        phrases: ['chicken rabbit problem', 'chickens and rabbits', 'legs and heads', '鸡兔同笼', '鸡兔问题', '头腿问题'],
         weight: 0.9,
         toolNames: ['solve_chicken_rabbit_problem']
       },
@@ -133,29 +133,30 @@ export class ToolCallDetector {
   }
 
   /**
-   * Analyze message and suggest tools using database metadata
+   * Analyze message and suggest tools using semantic understanding
    */
   async analyzeMessage(message: string): Promise<ToolSuggestion[]> {
     try {
       // Update available tools
       await this.updateAvailableTools()
-      
-      // Use database-driven tool suggestions
+
+      // Try semantic analysis first
+      const semanticSuggestions = await this.analyzeMessageWithSemantics(message)
+      if (semanticSuggestions.length > 0) {
+        return semanticSuggestions
+      }
+
+      // Fallback to database-driven suggestions
       const toolMetadataService = getToolMetadataService()
       await toolMetadataService.initialize()
-      
-      // Ensure keyword mappings exist
       await toolMetadataService.ensureKeywordMappingsExist()
-      
-      // Get tool suggestions from database
+
       const toolMappings = await toolMetadataService.getToolSuggestions(message)
-      
       const suggestions: ToolSuggestion[] = []
-      
+
       for (const mapping of toolMappings) {
-        // Check if tool is available
         const tool = this.availableTools.find(t => t.name === mapping.toolName)
-        if (tool && mapping.confidence > 0.1) { // Minimum confidence threshold
+        if (tool && mapping.confidence > 0.1) {
           suggestions.push({
             toolName: mapping.toolName,
             confidence: mapping.confidence,
@@ -165,19 +166,17 @@ export class ToolCallDetector {
         }
       }
 
-      // Fallback to hardcoded patterns if no database results
+      // Final fallback to hardcoded patterns
       if (suggestions.length === 0) {
-        console.log('No database suggestions found, falling back to hardcoded patterns')
+        console.log('No semantic or database suggestions found, falling back to hardcoded patterns')
         return this.analyzeMessageWithPatterns(message)
       }
 
-      // Sort by confidence and remove duplicates
       const uniqueSuggestions = this.deduplicateSuggestions(suggestions)
       return uniqueSuggestions.sort((a, b) => b.confidence - a.confidence)
 
     } catch (error) {
       console.error('Error analyzing message for tool suggestions:', error)
-      // Fallback to hardcoded patterns on error
       return this.analyzeMessageWithPatterns(message)
     }
   }
@@ -219,7 +218,7 @@ export class ToolCallDetector {
   private generateReasonFromKeywords(keywords: string[], confidence: number): string {
     const confidencePercent = Math.round(confidence * 100)
     const displayKeywords = keywords.slice(0, 3)
-    
+
     return `${confidencePercent}% confidence based on keywords: ${displayKeywords.join(', ')}`
   }
 
@@ -229,7 +228,7 @@ export class ToolCallDetector {
   private generateReason(pattern: ToolPattern, score: number): string {
     const confidence = Math.round(score * 100)
     const matchedItems = pattern.keywords.concat(pattern.phrases).slice(0, 3)
-    
+
     return `${confidence}% confidence based on keywords: ${matchedItems.join(', ')}`
   }
 
@@ -239,7 +238,7 @@ export class ToolCallDetector {
   private async suggestParametersFromDatabase(toolName: string, message: string): Promise<Record<string, any> | undefined> {
     try {
       const toolMetadataService = getToolMetadataService()
-      
+
       // Try to get parameter mapping from database
       const words = message.toLowerCase().split(/\s+/)
       for (const word of words) {
@@ -248,7 +247,7 @@ export class ToolCallDetector {
           return { [mapping]: word }
         }
       }
-      
+
       // Fallback to legacy parameter suggestion
       return this.suggestParameters(toolName, message)
     } catch (error) {
@@ -281,13 +280,19 @@ export class ToolCallDetector {
         break
 
       case 'solve_chicken_rabbit_problem':
-        // Try to extract heads and legs
-        const headsMatch = message.match(/(\d+)\s*heads?/i)
-        const legsMatch = message.match(/(\d+)\s*legs?/i)
+        // Try to extract heads and legs with various formats (English and Chinese)
+        const headsMatch = message.match(/(?:total_)?heads?\s*[:\s]*(\d+)/i) || 
+                          message.match(/(\d+)\s*(?:total_)?heads?/i) ||
+                          message.match(/(?:总共|共有|一共)?(?:个)?头\s*[:\s]*(\d+)/i) ||
+                          message.match(/(\d+)\s*(?:个)?头/i)
+        const legsMatch = message.match(/(?:total_)?legs?\s*[:\s]*(\d+)/i) || 
+                         message.match(/(\d+)\s*(?:total_)?legs?/i) ||
+                         message.match(/(?:总共|共有|一共)?(?:条)?腿\s*[:\s]*(\d+)/i) ||
+                         message.match(/(\d+)\s*(?:条)?腿/i)
         if (headsMatch && legsMatch) {
           return {
-            heads: parseInt(headsMatch[1]),
-            legs: parseInt(legsMatch[1])
+            total_heads: parseInt(headsMatch[1]),
+            total_legs: parseInt(legsMatch[1])
           }
         }
         break
@@ -381,6 +386,58 @@ export class ToolCallDetector {
   }
 
   /**
+   * Analyze message using semantic understanding with dedicated semantic matcher
+   */
+  private async analyzeMessageWithSemantics(message: string): Promise<ToolSuggestion[]> {
+    try {
+      const { getSemanticToolMatcher } = await import('./semantic-tool-matcher')
+      const semanticMatcher = getSemanticToolMatcher()
+      
+      // Initialize semantic matcher if needed
+      await semanticMatcher.initialize()
+      
+      // Get semantic matches
+      const semanticMatches = await semanticMatcher.matchTools(message)
+      
+      // Convert semantic matches to tool suggestions
+      const suggestions: ToolSuggestion[] = semanticMatches.map(match => ({
+        toolName: match.toolName,
+        confidence: match.confidence,
+        reason: `${match.matchType.toUpperCase()} 匹配: ${match.reasoning}`,
+        suggestedParameters: match.suggestedParameters
+      }))
+
+      console.log(`Semantic analysis found ${suggestions.length} tool suggestions`)
+      return suggestions
+
+    } catch (error) {
+      console.warn('Semantic analysis failed:', error)
+      return []
+    }
+  }
+
+  /**
+   * Parse LLM tool suggestions response
+   */
+  private parseLLMToolSuggestions(content: string): ToolSuggestion[] {
+    try {
+      const suggestions = JSON.parse(content)
+      if (Array.isArray(suggestions)) {
+        return suggestions.filter(s => 
+          s.toolName && 
+          typeof s.confidence === 'number' && 
+          s.confidence >= 0 && 
+          s.confidence <= 1 &&
+          s.reason
+        )
+      }
+    } catch (error) {
+      console.warn('Failed to parse LLM tool suggestions:', error)
+    }
+    return []
+  }
+
+  /**
    * Fallback method using hardcoded patterns (legacy)
    */
   private async analyzeMessageWithPatterns(message: string): Promise<ToolSuggestion[]> {
@@ -390,7 +447,7 @@ export class ToolCallDetector {
     // Check each pattern
     for (const pattern of this.patterns) {
       const score = this.calculatePatternScore(messageLower, pattern)
-      
+
       if (score > 0.3) { // Minimum confidence threshold
         for (const toolName of pattern.toolNames) {
           // Check if tool is available

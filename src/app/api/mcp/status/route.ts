@@ -23,13 +23,8 @@ export async function GET(request: NextRequest) {
     const initializer = getMCPInitializer()
     const status = initializer.getStatus()
     
-    // 如果系统还未就绪，尝试触发初始化（非阻塞）
-    if (!status.ready && !status.error) {
-      // 在后台启动初始化，不等待完成
-      initializer.initialize().catch(error => {
-        console.warn('后台MCP初始化失败:', error)
-      })
-    }
+    // 不在状态检查时触发初始化，只返回当前状态
+    // 初始化应该由系统启动时或明确的初始化请求触发
     
     // 从数据库获取详细的系统信息
     let systemInfo

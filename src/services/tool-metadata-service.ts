@@ -778,7 +778,7 @@ export class ToolMetadataService {
     }
 
     /**
-     * 使用LLM生成工具关键词
+     * 使用LLM生成工具关键词 - 真正的语义理解版本
      */
     private async generateKeywordsWithLLM(toolName: string, description?: string): Promise<string[]> {
         try {
@@ -789,23 +789,23 @@ export class ToolMetadataService {
             const toolInfo = await this.getToolInfo(toolName)
             const toolDescription = description || toolInfo?.description || ''
 
-            // 构建LLM提示词
-            const prompt = this.buildKeywordGenerationPrompt(toolName, toolDescription, toolInfo)
+            // 构建更智能的LLM提示词
+            const prompt = this.buildSemanticKeywordPrompt(toolName, toolDescription, toolInfo)
 
             const messages = [
                 {
                     role: 'system' as const,
-                    content: `你是一个专业的工具关键词生成助手。你的任务是为MCP工具生成准确、全面的关键词，帮助用户更容易找到和使用这些工具。
+                    content: `你是一个专业的自然语言理解助手。你的任务是为工具生成语义丰富的关键词，让用户能够用自然语言找到合适的工具。
 
-关键词生成原则：
-1. 包含中文和英文关键词
-2. 涵盖工具的核心功能和用途
-3. 包含用户可能使用的自然语言表达
-4. 考虑同义词和相关术语
-5. 每个工具生成10-20个关键词
-6. 关键词应该简洁明了，避免过长的短语
+核心原则：
+1. 理解工具的真实用途和应用场景
+2. 生成用户可能使用的各种自然语言表达
+3. 包含同义词、相关概念和上下文词汇
+4. 考虑中英文双语表达
+5. 涵盖不同技术水平用户的表达方式
+6. 生成15-25个高质量关键词
 
-请以JSON数组格式返回关键词，例如：["关键词1", "关键词2", ...]`
+返回JSON数组格式：["关键词1", "关键词2", ...]`
                 },
                 {
                     role: 'user' as const,
@@ -813,26 +813,96 @@ export class ToolMetadataService {
                 }
             ]
 
-            console.log(`使用LLM为工具 ${toolName} 生成关键词...`)
+            console.log(`使用语义理解为工具 ${toolName} 生成关键词...`)
             const response = await llmService.sendMessage(messages)
 
-            // 解析LLM响应
+            // 解析并验证LLM响应
             const keywords = this.parseLLMKeywordResponse(response.content)
 
             if (keywords.length > 0) {
-                console.log(`LLM为工具 ${toolName} 生成了 ${keywords.length} 个关键词:`, keywords.slice(0, 5).join(', '), '...')
-
-                // Note: Embeddings generation skipped as functionality has been removed
-
+                console.log(`语义分析为工具 ${toolName} 生成了 ${keywords.length} 个关键词:`, keywords.slice(0, 5).join(', '), '...')
+                
+                // 生成语义相似度映射（如果需要）
+                await this.generateSemanticMappings(toolName, keywords)
+                
                 return keywords
             } else {
-                console.warn(`LLM未能为工具 ${toolName} 生成有效关键词`)
-                return []
+                console.warn(`语义分析未能为工具 ${toolName} 生成有效关键词`)
+                return this.getFallbackKeywords(toolName)
             }
 
         } catch (error) {
-            console.error(`LLM生成工具 ${toolName} 关键词失败:`, error)
-            return []
+            console.error(`语义关键词生成失败 ${toolName}:`, error)
+            return this.getFallbackKeywords(toolName)
+        }
+    }
+
+    /**
+     * 构建语义关键词生成提示词
+     */
+    private buildSemanticKeywordPrompt(toolName: string, description: string, toolInfo: any): string {
+        let prompt = `请为以下工具生成语义丰富的关键词：
+
+工具名称: ${toolName}
+工具描述: ${description || '无描述'}
+`
+
+        // 添加参数信息
+        if (toolInfo?.inputSchema?.properties) {
+            const params = Object.keys(toolInfo.inputSchema.properties)
+            prompt += `参数: ${params.join(', ')}\n`
+        }
+
+        // 根据工具类型添加语义指导
+        if (toolName.includes('solve')) {
+            prompt += `
+这是一个问题求解工具。请生成包含以下语义的关键词：
+- 用户描述问题的各种方式
+- 求解、计算、解决的不同表达
+- 相关数学、算法概念
+- 问题类型和应用场景
+- 用户可能的疑问表达方式`
+        } else if (toolName.includes('run') || toolName.includes('execute')) {
+            prompt += `
+这是一个执行工具。请生成包含以下语义的关键词：
+- 运行、执行的各种表达方式
+- 用户想要测试、尝试的表达
+- 示例、演示相关的自然语言
+- 启动、开始相关的词汇`
+        }
+
+        prompt += `
+
+请深入理解工具的用途，生成用户在以下场景中可能使用的自然语言表达：
+1. 描述他们想要解决的问题
+2. 询问如何使用工具
+3. 表达他们的需求和目标
+4. 使用非技术术语描述功能
+
+生成15-25个关键词，包含：
+- 核心功能的多种表达方式
+- 用户可能的问题描述
+- 相关概念和同义词
+- 中英文表达
+- 不同技术水平的用词
+
+只返回JSON数组，不要解释。`
+
+        return prompt
+    }
+
+    /**
+     * 生成语义映射（用于更好的匹配）
+     */
+    private async generateSemanticMappings(toolName: string, keywords: string[]): Promise<void> {
+        try {
+            // 这里可以添加语义相似度计算
+            // 例如使用词向量、语义嵌入等技术
+            console.log(`为工具 ${toolName} 生成语义映射...`)
+            
+            // 暂时跳过复杂的语义映射，专注于关键词质量
+        } catch (error) {
+            console.warn(`生成语义映射失败:`, error)
         }
     }
 
@@ -1557,6 +1627,86 @@ export class ToolMetadataService {
             }
         } catch (error) {
             console.error(`清除工具 ${toolName} 的LLM关键词失败:`, error)
+        }
+    }
+
+    /**
+     * 获取关键词映射统计
+     */
+    async getKeywordMappingStats(): Promise<{
+        totalTools: number
+        toolsWithKeywords: number
+        totalKeywords: number
+        keywordsBySource: Record<string, number>
+        lastUpdated: Date | null
+    }> {
+        try {
+            const dbService = getDatabaseService()
+            const client = await dbService.getClient()
+            if (!client) {
+                return {
+                    totalTools: 0,
+                    toolsWithKeywords: 0,
+                    totalKeywords: 0,
+                    keywordsBySource: {},
+                    lastUpdated: null
+                }
+            }
+
+            try {
+                // 获取总工具数
+                const totalToolsResult = await client.query(`
+                    SELECT COUNT(DISTINCT name) as count FROM mcp_tools
+                `)
+
+                // 获取有关键词的工具数
+                const toolsWithKeywordsResult = await client.query(`
+                    SELECT COUNT(DISTINCT tool_name) as count 
+                    FROM tool_keyword_mappings
+                `)
+
+                // 获取关键词总数
+                const totalKeywordsResult = await client.query(`
+                    SELECT COUNT(*) as count FROM tool_keyword_mappings
+                `)
+
+                // 按来源统计关键词
+                const keywordsBySourceResult = await client.query(`
+                    SELECT source, COUNT(*) as count 
+                    FROM tool_keyword_mappings 
+                    GROUP BY source
+                `)
+
+                // 获取最后更新时间
+                const lastUpdatedResult = await client.query(`
+                    SELECT MAX(created_at) as last_updated 
+                    FROM tool_keyword_mappings
+                `)
+
+                const keywordsBySource: Record<string, number> = {}
+                keywordsBySourceResult.rows.forEach(row => {
+                    keywordsBySource[row.source] = parseInt(String(row.count))
+                })
+
+                return {
+                    totalTools: parseInt(String(totalToolsResult.rows[0]?.count || '0')),
+                    toolsWithKeywords: parseInt(String(toolsWithKeywordsResult.rows[0]?.count || '0')),
+                    totalKeywords: parseInt(String(totalKeywordsResult.rows[0]?.count || '0')),
+                    keywordsBySource,
+                    lastUpdated: lastUpdatedResult.rows[0]?.last_updated || null
+                }
+            } finally {
+                client.release()
+            }
+        } catch (error) {
+            console.error('获取关键词映射统计失败:', error)
+            return {
+                totalTools: 0,
+                toolsWithKeywords: 0,
+                totalKeywords: 0,
+                keywordsBySource: {},
+                lastUpdated: null
+            }
         }
     }
 

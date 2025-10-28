@@ -64,8 +64,10 @@ export async function register() {
             console.log('🔧 初始化 MCP 系统...')
             const { initializeMCPSystem, getMCPInitializer } = await import('./src/services/mcp-initializer')
             
-            // 强制进行完整初始化
+            // 强制进行完整初始化，设置启动标志
+            process.env.MCP_STARTUP_INITIALIZING = 'true'
             const status = await initializeMCPSystem()
+            process.env.MCP_STARTUP_INITIALIZING = 'false'
 
             if (status.ready) {
                 console.log(`✓ MCP 系统初始化成功 (${status.details.totalTools} 个工具可用)`)

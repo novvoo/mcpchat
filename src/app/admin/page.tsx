@@ -20,9 +20,36 @@ interface ServiceStatus {
   details?: string
 }
 
+interface SystemInfo {
+  database: {
+    connected: boolean
+    tables: string[]
+    vectorSearch: boolean
+    connectionPool?: {
+      total: number
+      idle: number
+      waiting: number
+    }
+  }
+  services: {
+    llm: boolean
+    mcp: boolean
+  }
+  performance: {
+    uptime: number
+    memoryUsage: {
+      used: number
+      total: number
+      percentage: number
+    }
+    responseTime: number
+  }
+}
+
 export default function AdminPage() {
   const [services, setServices] = useState<ServiceStatus[]>([])
   const [loading, setLoading] = useState(true)
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
 
   // MCP系统状态管理
   const { 
@@ -35,7 +62,20 @@ export default function AdminPage() {
 
   useEffect(() => {
     checkServicesHealth()
+    loadSystemInfo()
   }, [])
+
+  const loadSystemInfo = async () => {
+    try {
+      const response = await fetch('/api/admin/system-info')
+      if (response.ok) {
+        const data = await response.json()
+        setSystemInfo(data)
+      }
+    } catch (error) {
+      console.error('Failed to load system info:', error)
+    }
+  }
 
   const checkServicesHealth = async () => {
     setLoading(true)
@@ -64,7 +104,8 @@ export default function AdminPage() {
           details: data.checks?.llm_service ?
             `服务已初始化 (${data.checks.details?.llm_service?.timeout}ms 超时)` :
             '服务不可用'
-        }
+        },
+
       ]
 
       setServices(serviceStatuses)
@@ -95,6 +136,8 @@ export default function AdminPage() {
       default: return '❓'
     }
   }
+
+
 
   const adminSections = [
     {
@@ -147,16 +190,17 @@ export default function AdminPage() {
       color: 'from-green-500 to-teal-600',
       items: [
         {
+          name: '系统设置',
+          description: '在线配置LLM和MCP服务（仅修改数据库配置）',
+          href: '/admin/system-settings',
+          icon: <Settings className="h-4 w-4" />,
+          badge: 'NEW'
+        },
+        {
           name: '格式化测试',
           description: '测试文本格式化和显示功能',
           href: '/admin/test-formatting',
           icon: <TestTube className="h-4 w-4" />
-        },
-        {
-          name: '数据库管理',
-          description: '查看和管理数据库连接、表结构',
-          href: '/admin/database',
-          icon: <Database className="h-4 w-4" />
         }
       ]
     }
@@ -215,7 +259,7 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {services.map((service, index) => (
                 <div key={index} className="flex items-center p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
                   <span className="text-lg mr-3">{getStatusIcon(service.status)}</span>
@@ -320,6 +364,72 @@ export default function AdminPage() {
                 <Activity className="h-4 w-4" />
                 查看API状态
               </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Database Management */}
+        <div className="bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden mb-8">
+          <div className="bg-gradient-to-r from-green-500 via-emerald-600 to-teal-600 p-6 text-white">
+            <div className="flex items-center mb-2">
+              <Database className="h-6 w-6 text-white" />
+              <h2 className="text-xl font-semibold ml-3 text-white">数据库管理</h2>
+            </div>
+            <p className="text-white/90">管理数据库连接、表结构和数据</p>
+          </div>
+
+          <div className="p-6">
+            {systemInfo?.database && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-3">
+                  <h3 className="font-bold text-black text-base">连接信息</h3>
+                  <div className="text-sm text-black space-y-2 font-medium">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-3 h-3 rounded-full ${systemInfo.database.connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                      <span className="text-black">状态: <span className={systemInfo.database.connected ? 'text-green-700 font-bold' : 'text-red-700 font-bold'}>{systemInfo.database.connected ? '已连接' : '断开'}</span></span>
+                    </div>
+                    <div className="text-black">向量搜索: <span className={systemInfo.database.vectorSearch ? 'text-green-700 font-bold' : 'text-red-700 font-bold'}>{systemInfo.database.vectorSearch ? '启用' : '禁用'}</span></div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="font-bold text-black text-base">表结构</h3>
+                  <div className="text-sm text-black font-medium">
+                    <div className="mb-2 text-black">总表数: <span className="text-blue-700 font-bold">{systemInfo.database.tables.length}</span></div>
+                    <div className="max-h-32 overflow-y-auto bg-white rounded-lg p-3 border-2 border-gray-300 shadow-sm">
+                      {systemInfo.database.tables.map((table, index) => (
+                        <div key={index} className="py-1 text-black font-medium">• {table}</div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="font-bold text-black text-base">连接池</h3>
+                  <div className="text-sm text-black space-y-1 font-medium">
+                    {systemInfo.database.connectionPool ? (
+                      <>
+                        <div className="text-black">总连接: <span className="text-blue-700 font-bold">{systemInfo.database.connectionPool.total}</span></div>
+                        <div className="text-black">空闲连接: <span className="text-green-700 font-bold">{systemInfo.database.connectionPool.idle}</span></div>
+                        <div className="text-black">等待连接: <span className="text-orange-700 font-bold">{systemInfo.database.connectionPool.waiting}</span></div>
+                      </>
+                    ) : (
+                      <div className="text-black">连接池信息不可用</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={loadSystemInfo}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 border border-gray-200 transition-all"
+                >
+                  刷新信息
+                </button>
+              </div>
             </div>
           </div>
         </div>

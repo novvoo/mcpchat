@@ -71,7 +71,13 @@ export class MCPInitializer {
     // 如果正在初始化，等待完成
     if (this.initializing) {
       console.log('MCP系统正在初始化中，等待完成...')
-      return this.initializing
+      try {
+        return await this.initializing
+      } catch (error) {
+        // 如果之前的初始化失败，清除状态并重试
+        console.log('之前的初始化失败，清除状态并重试')
+        this.initializing = null
+      }
     }
 
     // 开始初始化
@@ -81,8 +87,10 @@ export class MCPInitializer {
     try {
       const result = await this.initializing
       return result
-    } finally {
+    } catch (error) {
+      // 初始化失败时清除状态
       this.initializing = null
+      throw error
     }
   }
 
@@ -687,10 +695,32 @@ export class MCPInitializer {
     capabilities: string[]
   }> {
     const mcpManager = getMCPManager()
-    const mcpToolsService = getMCPToolsService()
-
+    
     const servers = mcpManager.getServerStatus()
-    const tools = await mcpToolsService.getAvailableTools()
+    
+    // 只有在系统已就绪时才获取工具，避免触发不必要的初始化
+    let tools: Tool[] = []
+    if (this.initializationStatus.ready) {
+      try {
+        const mcpToolsService = getMCPToolsService()
+        tools = await mcpToolsService.getAvailableTools()
+      } catch (error) {
+        console.warn('获取工具列表失败:', error)
+        // 尝试直接从管理器获取
+        try {
+          tools = await mcpManager.listTools()
+        } catch (managerError) {
+          console.warn('从管理器获取工具失败:', managerError)
+        }
+      }
+    } else {
+      // 如果系统未就绪，尝试从管理器获取已缓存的工具
+      try {
+        tools = await mcpManager.listTools()
+      } catch (error) {
+        // 忽略错误，返回空数组
+      }
+    }
 
     const capabilities = []
     if (this.initializationStatus.configLoaded) capabilities.push('配置加载')
